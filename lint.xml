@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Fail build if INTERNET permission is added — DoseTap must never have network access. -->
+    <issue id="UsesPermissionInternet" severity="fatal" />
+
+    <!-- Ignore preview-only issues -->
+    <issue id="PreviewAnnotationInFunctionWithParameters" severity="ignore" />
+
+    <!-- Allow hardcoded text in previews only -->
+    <issue id="HardcodedText" severity="error">
+        <ignore path="**/preview/**" />
+    </issue>
+
+    <!-- Require proper content descriptions -->
+    <issue id="ContentDescription" severity="error" />
+
+    <!-- Warn about deprecated APIs but don't fail -->
+    <issue id="Deprecation" severity="warning" />
+
+    <!-- Ensure proper click labels for accessibility -->
+    <issue id="ClickableViewAccessibility" severity="warning" />
+</lint>

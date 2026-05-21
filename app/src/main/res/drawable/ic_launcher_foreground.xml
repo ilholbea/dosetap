@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Pill shape -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 C43,28 34,37 34,48 L34,60 C34,71 43,80 54,80 C65,80 74,71 74,60 L74,48 C74,37 65,28 54,28 Z" />
+    <!-- Pill divider line -->
+    <path
+        android:strokeColor="#006A6A"
+        android:strokeWidth="3"
+        android:pathData="M34,54 L74,54" />
+</vector>

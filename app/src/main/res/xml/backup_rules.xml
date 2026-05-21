@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup configuration for GDPR compliance.
+  Room DB is excluded to protect medication/dose privacy data (user may not want this backed up).
+  DataStore preferences (onboarding state, settings) are allowed to backup for convenience.
+-->
+<full-backup-content>
+    <!-- Exclude Room database files for privacy -->
+    <exclude domain="database" path="dosetap_database" />
+    <exclude domain="database" path="dosetap_database-shm" />
+    <exclude domain="database" path="dosetap_database-wal" />
+</full-backup-content>

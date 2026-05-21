@@ -1,0 +1,218 @@
+package com.dosetap.alarm
+
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import com.dosetap.data.db.AlarmDao
+import com.dosetap.data.db.MedicationDao
+import com.dosetap.data.prefs.SettingsRepository
+import com.dosetap.domain.model.Medication
+import com.dosetap.domain.model.ScheduledAlarm
+import com.dosetap.util.Constants
+
+private const val TAG = "AlarmScheduler"
+
+/**
+ * Schedules, cancels, and reschedules medication follow-up alarms.
+ *
+ * Uses [AlarmManager.setExactAndAllowWhileIdle] to ensure alarms fire even in Doze mode.
+ * This is the most reliable scheduling method for user-facing exact alarms (§5.1).
+ *
+ * **Request code formula:** `(tapId.toInt() shl 4) or followUpIndex`
+ * This guarantees unique codes per alarm while allowing cancellation by reconstruction.
+ *
+ * **Persistence:** Every scheduled alarm is written to [AlarmDao] before being set in the system.
+ * On reboot/force-stop, [rescheduleAll] reads from the DB and re-sets all pending alarms.
+ */
+class AlarmScheduler(
+    private val context: Context,
+    private val alarmDao: AlarmDao,
+    private val medicationDao: MedicationDao,
+    private val settingsRepository: SettingsRepository,
+) {
+    private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+    /**
+     * Schedules follow-up alarms for a new dose tap.
+     *
+     * Cancels any existing alarms for [tapId] first to avoid duplicates
+     * (e.g. if user taps widget twice quickly — debounce should prevent this but
+     * we defend here too).
+     *
+     * @param tapId Unique ID of the initial tap (DoseEvent.sourceTapId).
+     * @param medication The medication whose follow-up intervals to use.
+     * @param baseTimeMillis The UTC millis of the initial tap (alarms are baseTime + interval).
+     */
+    suspend fun scheduleFollowUps(
+        tapId: Long,
+        medication: Medication,
+        baseTimeMillis: Long,
+    ) {
+        // Cancel any existing alarms for this tapId first
+        cancelFollowUps(tapId)
+
+        val alarmsToInsert = mutableListOf<ScheduledAlarm>()
+
+        medication.followUps.forEachIndexed { index, intervalMinutes ->
+            val triggerAtMillis = baseTimeMillis + intervalMinutes * 60_000L
+            val requestCode = buildRequestCode(tapId, index)
+
+            val pendingIntent = buildAlarmPendingIntent(
+                tapId = tapId,
+                medicationId = medication.id,
+                followUpIndex = index,
+                requestCode = requestCode,
+            )
+
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                triggerAtMillis,
+                pendingIntent,
+            )
+
+            Log.d(TAG, "Scheduled alarm tapId=$tapId index=$index at $triggerAtMillis (requestCode=$requestCode)")
+
+            alarmsToInsert.add(
+                ScheduledAlarm(
+                    tapId = tapId,
+                    medicationId = medication.id,
+                    followUpIndex = index,
+                    triggerAtMillis = triggerAtMillis,
+                )
+            )
+        }
+
+        alarmDao.insertAll(alarmsToInsert)
+        settingsRepository.setAlarmsActive(true)
+        settingsRepository.resetAlarmBanner()
+    }
+
+    /**
+     * Cancels all pending alarms for the given [tapId].
+     *
+     * Reconstructs PendingIntents using the same formula as scheduling,
+     * so the system can match and cancel them.
+     */
+    suspend fun cancelFollowUps(tapId: Long) {
+        val activeAlarms = alarmDao.getActiveByTapId(tapId)
+        activeAlarms.forEach { alarm ->
+            val requestCode = buildRequestCode(tapId, alarm.followUpIndex)
+            val pendingIntent = buildAlarmPendingIntent(
+                tapId = tapId,
+                medicationId = alarm.medicationId,
+                followUpIndex = alarm.followUpIndex,
+                requestCode = requestCode,
+            )
+            alarmManager.cancel(pendingIntent)
+            Log.d(TAG, "Cancelled alarm tapId=$tapId index=${alarm.followUpIndex}")
+        }
+        alarmDao.cancelByTapId(tapId)
+    }
+
+    /**
+     * Reschedules all active alarms from the database.
+     *
+     * Called by [BootReceiver] after device reboot, app update, timezone change, or time set.
+     * The DB is the source of truth; AlarmManager is just a cache.
+     *
+     * Alarms whose trigger time has already passed are skipped (they will appear as MISSED
+     * in the dose history since [AlarmReceiver] wrote MISSED at schedule time).
+     */
+    suspend fun rescheduleAll() {
+        val nowMillis = System.currentTimeMillis()
+        val activeAlarms = alarmDao.getAllActive(nowMillis)
+
+        if (activeAlarms.isEmpty()) {
+            Log.d(TAG, "rescheduleAll: no active alarms to restore")
+            settingsRepository.setAlarmsActive(false)
+            return
+        }
+
+        activeAlarms.forEach { alarm ->
+            val medication = medicationDao.getById(alarm.medicationId)
+            if (medication == null) {
+                Log.w(TAG, "rescheduleAll: medication ${alarm.medicationId} not found, skipping alarm ${alarm.id}")
+                alarmDao.cancelById(alarm.id)
+                return@forEach
+            }
+
+            val requestCode = buildRequestCode(alarm.tapId, alarm.followUpIndex)
+            val pendingIntent = buildAlarmPendingIntent(
+                tapId = alarm.tapId,
+                medicationId = alarm.medicationId,
+                followUpIndex = alarm.followUpIndex,
+                requestCode = requestCode,
+            )
+
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                alarm.triggerAtMillis,
+                pendingIntent,
+            )
+
+            Log.d(TAG, "Rescheduled alarm tapId=${alarm.tapId} index=${alarm.followUpIndex} at ${alarm.triggerAtMillis}")
+        }
+
+        settingsRepository.setAlarmsActive(true)
+        Log.i(TAG, "rescheduleAll: restored ${activeAlarms.size} alarms")
+    }
+
+    /**
+     * Schedules a single test alarm [Constants.TEST_REMINDER_DELAY_MILLIS] from now.
+     * Uses a fixed request code so it can be easily identified and cancelled.
+     *
+     * @param medicationId The medication ID to use in the test alarm notification.
+     */
+    fun scheduleTestAlarm(medicationId: Long) {
+        val triggerAt = System.currentTimeMillis() + Constants.TEST_REMINDER_DELAY_MILLIS
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(Constants.EXTRA_TAP_ID, -1L) // Special sentinel for test alarms
+            putExtra(Constants.EXTRA_MEDICATION_ID, medicationId)
+            putExtra(Constants.EXTRA_FOLLOWUP_INDEX, 0)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            Constants.TEST_ALARM_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        Log.d(TAG, "Test alarm scheduled at $triggerAt")
+    }
+
+    // ===== Private helpers =====
+
+    /**
+     * Builds a unique PendingIntent request code for a given tap ID and follow-up index.
+     *
+     * Formula: `(tapId.toInt() shl 4) or followUpIndex`
+     * - 28 bits for tapId (truncated), 4 bits for followUpIndex (0–15)
+     * - This guarantees unique codes for up to 4 follow-ups per tap
+     */
+    private fun buildRequestCode(tapId: Long, followUpIndex: Int): Int {
+        return (tapId.toInt() shl Constants.REQUEST_CODE_SHIFT) or followUpIndex
+    }
+
+    private fun buildAlarmPendingIntent(
+        tapId: Long,
+        medicationId: Long,
+        followUpIndex: Int,
+        requestCode: Int,
+    ): PendingIntent {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(Constants.EXTRA_TAP_ID, tapId)
+            putExtra(Constants.EXTRA_MEDICATION_ID, medicationId)
+            putExtra(Constants.EXTRA_FOLLOWUP_INDEX, followUpIndex)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            // FLAG_IMMUTABLE is required on Android 12+ (API 31+). FLAG_UPDATE_CURRENT ensures
+            // rescheduling replaces the previous intent rather than creating a duplicate.
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+}

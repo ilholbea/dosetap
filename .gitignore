@@ -1,0 +1,22 @@
+# Android
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+*.ap_
+*.dex
+*.class
+
+# Keystore
+*.jks
+*.keystore
+
+# Spec / dev notes (not part of the public repo)
+dose_android_prompt.md
+TODO.md
+
+# Google Services
+google-services.json
