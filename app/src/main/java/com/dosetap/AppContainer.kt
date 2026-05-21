@@ -7,6 +7,13 @@ import androidx.glance.appwidget.state.updateAppWidgetState
 import com.dosetap.alarm.AlarmScheduler
 import com.dosetap.widget.DoseWidget
 import com.dosetap.widget.LastDoseTimeKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.dosetap.data.db.AlarmDao
 import com.dosetap.data.db.AppDatabase
@@ -16,6 +23,8 @@ import com.dosetap.data.prefs.SettingsRepository
 import com.dosetap.domain.usecase.HandleDoseActionUseCase
 import com.dosetap.domain.usecase.LogDoseUseCase
 import com.dosetap.domain.usecase.ScheduleFollowUpsUseCase
+import com.dosetap.billing.BillingManager
+import com.dosetap.billing.GiftCodeManager
 import com.dosetap.util.BackupManager
 
 /**
@@ -75,6 +84,19 @@ class AppContainer(context: Context) {
             alarmScheduler = alarmScheduler,
             medicationDao = medicationDao,
         )
+    }
+
+    // ===== Billing =====
+    val billingManager: BillingManager by lazy { BillingManager(appContext) }
+    val giftCodeManager: GiftCodeManager by lazy { GiftCodeManager(appContext) }
+
+    private val containerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** True when user has Pro via either Play purchase or a redeemed gift code. */
+    val isPro: StateFlow<Boolean> by lazy {
+        combine(billingManager.isPro, settingsRepository.giftCodeUnlocked) { billing, gift ->
+            billing || gift
+        }.stateIn(containerScope, SharingStarted.Eagerly, false)
     }
 
     val backupManager: BackupManager by lazy {

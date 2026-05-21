@@ -19,6 +19,12 @@ interface AlarmDao {
     @Query("SELECT * FROM scheduled_alarms WHERE tapId = :tapId AND isCancelled = 0")
     suspend fun getActiveByTapId(tapId: Long): List<ScheduledAlarm>
 
+    @Query("SELECT * FROM scheduled_alarms WHERE medicationId = :medicationId AND isCancelled = 0")
+    suspend fun getActiveByMedicationId(medicationId: Long): List<ScheduledAlarm>
+
+    @Query("UPDATE scheduled_alarms SET isCancelled = 1 WHERE medicationId = :medicationId")
+    suspend fun cancelByMedicationId(medicationId: Long)
+
     /** Returns all active (not-cancelled, future) alarms — used for rescheduling after reboot. */
     @Query(
         """

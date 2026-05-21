@@ -6,8 +6,11 @@ import android.media.RingtoneManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,6 +34,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocalPharmacy
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Schedule
@@ -72,6 +77,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
@@ -80,12 +86,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dosetap.BuildConfig
 import com.dosetap.DoseTapApp
 import com.dosetap.R
 import com.dosetap.domain.model.Medication
+import com.dosetap.ui.paywall.PaywallBottomSheet
 import com.dosetap.util.BatteryOptimizationHelper
 import com.dosetap.util.Constants
 import com.dosetap.util.TimeFormatter
@@ -106,7 +114,10 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     )
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isPro by container.isPro.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showPaywall by remember { mutableStateOf(false) }
+    var showAddMedication by remember { mutableStateOf(false) }
 
     // File picker for import
     val importLauncher = rememberLauncherForActivityResult(
@@ -164,6 +175,21 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
         )
     }
 
+    if (showPaywall) {
+        PaywallBottomSheet(
+            price = container.billingManager.formattedPrice(),
+            onPurchase = { activity -> container.billingManager.launchPurchase(activity) },
+            onRestore = { container.billingManager.restorePurchases() },
+            onGiftCode = { code ->
+                if (container.giftCodeManager.isValid(code)) {
+                    viewModel.unlockProViaGiftCode()
+                    true
+                } else false
+            },
+            onDismiss = { showPaywall = false },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -210,13 +236,49 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Medication section
-            item {
-                SectionHeader(stringResource(R.string.settings_medication_section))
+            // Medication section — one card per medication
+            item { SectionHeader(stringResource(R.string.settings_medication_section)) }
+            items(uiState.medications, key = { it.id }) { med ->
                 MedicationSection(
-                    medication = uiState.medication,
+                    medication = med,
+                    isPro = isPro,
+                    canDelete = uiState.medications.size > 1,
                     onSave = { viewModel.saveMedication(it) },
+                    onDelete = { viewModel.deleteMedication(med.id) },
+                    onShowPaywall = { showPaywall = true },
                 )
+            }
+            if (uiState.medications.isEmpty() || showAddMedication) {
+                item {
+                    MedicationSection(
+                        medication = null,
+                        isPro = isPro,
+                        canDelete = false,
+                        onSave = { viewModel.saveMedication(it); showAddMedication = false },
+                        onDelete = {},
+                        onShowPaywall = { showPaywall = true },
+                    )
+                }
+            }
+            if (uiState.medications.isNotEmpty() && !showAddMedication) {
+                item {
+                    val canAdd = isPro
+                    OutlinedButton(
+                        onClick = if (canAdd) {
+                            { showAddMedication = true }
+                        } else {
+                            { showPaywall = true }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Text("Add medication", modifier = Modifier.padding(start = 8.dp))
+                        if (!canAdd) {
+                            Spacer(Modifier.weight(1f))
+                            ProBadge(onClick = null)
+                        }
+                    }
+                }
             }
 
             // Reliability section
@@ -237,9 +299,11 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
             item {
                 SectionHeader(stringResource(R.string.settings_data_section))
                 DataSection(
+                    isPro = isPro,
                     onExport = { viewModel.exportData() },
                     onImport = { importLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*")) },
                     onDelete = { viewModel.showDeleteConfirm() },
+                    onShowPaywall = { showPaywall = true },
                 )
             }
 
@@ -267,10 +331,14 @@ private fun SectionHeader(title: String) {
 @Composable
 private fun MedicationSection(
     medication: Medication?,
+    isPro: Boolean,
+    canDelete: Boolean,
     onSave: (Medication) -> Unit,
+    onDelete: () -> Unit,
+    onShowPaywall: () -> Unit,
 ) {
     val context = LocalContext.current
-    var editing by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(medication == null) }
     var name by remember(medication) { mutableStateOf(medication?.name ?: "") }
     val followUps = remember(medication) {
         mutableStateListOf(*(medication?.followUps ?: Constants.DEFAULT_FOLLOWUPS).toTypedArray())
@@ -355,12 +423,22 @@ private fun MedicationSection(
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(
-                        onClick = { editing = true },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Filled.Edit, contentDescription = null)
-                        Text(stringResource(R.string.settings_medication_edit), modifier = Modifier.padding(start = 8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { editing = true },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text(stringResource(R.string.settings_medication_edit), modifier = Modifier.padding(start = 6.dp))
+                        }
+                        if (canDelete) {
+                            OutlinedButton(
+                                onClick = onDelete,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            ) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                 } else {
                     Text(
@@ -423,16 +501,14 @@ private fun MedicationSection(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                // Alarm tone row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                // Alarm tone row (Pro)
+                ProFeatureRow(
+                    icon = { Icon(Icons.Filled.MusicNote, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = "Alarm tone",
+                    sublabel = soundDisplayName(),
+                    isPro = isPro,
+                    onShowPaywall = onShowPaywall,
                 ) {
-                    Icon(Icons.Filled.MusicNote, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Alarm tone", style = MaterialTheme.typography.bodySmall)
-                        Text(soundDisplayName(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                     TextButton(onClick = {
                         val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
                             putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
@@ -443,16 +519,14 @@ private fun MedicationSection(
                     }) { Text("Change") }
                 }
 
-                // Daily reminder row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                // Daily reminder row (Pro)
+                ProFeatureRow(
+                    icon = { Icon(Icons.Filled.Notifications, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = "Daily reminder",
+                    sublabel = minutesToDisplay(dailyReminderMinutes),
+                    isPro = isPro,
+                    onShowPaywall = onShowPaywall,
                 ) {
-                    Icon(Icons.Filled.Notifications, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Daily reminder", style = MaterialTheme.typography.bodySmall)
-                        Text(minutesToDisplay(dailyReminderMinutes), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                     TextButton(onClick = { showDailyTimePicker = true }) {
                         Text(if (dailyReminderMinutes == null) "Set" else "Edit")
                     }
@@ -461,7 +535,7 @@ private fun MedicationSection(
                     }
                 }
 
-                // Late cutoff row
+                // Late cutoff row (free — it's a safety feature)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -483,7 +557,7 @@ private fun MedicationSection(
                     }
                 }
 
-                // Off-days row
+                // Off-days row (Pro)
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -493,82 +567,78 @@ private fun MedicationSection(
                     Text(
                         "Off-days (no reminder)",
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(start = 12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp),
+                    )
+                    if (!isPro) {
+                        ProBadge(onClick = onShowPaywall)
+                    }
+                }
+                if (isPro) {
+                    Spacer(Modifier.height(8.dp))
+                    val dayLabels = listOf(
+                        java.util.Calendar.SUNDAY to "Sun",
+                        java.util.Calendar.MONDAY to "Mon",
+                        java.util.Calendar.TUESDAY to "Tue",
+                        java.util.Calendar.WEDNESDAY to "Wed",
+                        java.util.Calendar.THURSDAY to "Thu",
+                        java.util.Calendar.FRIDAY to "Fri",
+                        java.util.Calendar.SATURDAY to "Sat",
+                    )
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        dayLabels.forEach { (dow, label) ->
+                            FilterChip(
+                                selected = dow in offDays,
+                                onClick = {
+                                    if (dow in offDays) offDays.remove(dow) else offDays.add(dow)
+                                },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                            )
+                        }
+                    }
+                }
+
+                // Duration / Effect window row (Pro)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                ProFeatureRow(
+                    icon = { Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = "Effect window",
+                    sublabel = if (durationMinutes == null) "Not set" else "${durationMinutes!! / 60}h ${durationMinutes!! % 60}min",
+                    isPro = isPro,
+                    onShowPaywall = onShowPaywall,
+                ) {}
+                if (isPro) {
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = durationText,
+                        onValueChange = { v ->
+                            durationText = v.filter { it.isDigit() }.take(4)
+                            durationMinutes = if (durationText.isEmpty()) null else durationText.toIntOrNull()
+                        },
+                        label = { Text("Duration (minutes)", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                        ),
+                        supportingText = { Text("e.g. 240 for 4-hour IR tablet") },
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                val dayLabels = listOf(
-                    java.util.Calendar.SUNDAY to "Sun",
-                    java.util.Calendar.MONDAY to "Mon",
-                    java.util.Calendar.TUESDAY to "Tue",
-                    java.util.Calendar.WEDNESDAY to "Wed",
-                    java.util.Calendar.THURSDAY to "Thu",
-                    java.util.Calendar.FRIDAY to "Fri",
-                    java.util.Calendar.SATURDAY to "Sat",
-                )
-                @OptIn(ExperimentalLayoutApi::class)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    dayLabels.forEach { (dow, label) ->
-                        FilterChip(
-                            selected = dow in offDays,
-                            onClick = {
-                                if (dow in offDays) offDays.remove(dow) else offDays.add(dow)
-                            },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        )
-                    }
-                }
 
-                // Duration row
+                // Pill count row (Pro)
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                ProFeatureRow(
+                    icon = { Icon(Icons.Filled.LocalPharmacy, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = "Pill count tracking",
+                    sublabel = if (pillCount == null) "Disabled" else "$pillCount pills remaining",
+                    isPro = isPro,
+                    onShowPaywall = onShowPaywall,
                 ) {
-                    Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Effect window (hours)", style = MaterialTheme.typography.bodySmall)
-                        Text(
-                            if (durationMinutes == null) "Not set" else "${durationMinutes!! / 60}h ${durationMinutes!! % 60}min",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = durationText,
-                    onValueChange = { v ->
-                        durationText = v.filter { it.isDigit() }.take(4)
-                        durationMinutes = if (durationText.isEmpty()) null else durationText.toIntOrNull()
-                    },
-                    label = { Text("Duration (minutes)", style = MaterialTheme.typography.labelSmall) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                    ),
-                    supportingText = { Text("e.g. 240 for 4-hour IR tablet") },
-                )
-
-                // Pill count row
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.LocalPharmacy, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Pill count tracking", style = MaterialTheme.typography.bodySmall)
-                        Text(
-                            if (pillCount == null) "Disabled" else "$pillCount pills remaining",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                     TextButton(onClick = { showSetPillCountDialog = true }) {
                         Text(if (pillCount == null) "Enable" else "Update")
                     }
@@ -577,7 +647,7 @@ private fun MedicationSection(
                     }
                 }
 
-                if (pillCount != null) {
+                if (isPro && pillCount != null) {
                     Spacer(Modifier.height(4.dp))
                     OutlinedTextField(
                         value = refillAlertAt.toString(),
@@ -792,18 +862,34 @@ private fun ReliabilitySection(
 
 @Composable
 private fun DataSection(
+    isPro: Boolean,
     onExport: () -> Unit,
     onImport: () -> Unit,
     onDelete: () -> Unit,
+    onShowPaywall: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = if (isPro) onExport else onShowPaywall,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Icon(Icons.Filled.Download, contentDescription = null)
             Text("Export backup (JSON)", modifier = Modifier.padding(start = 8.dp))
+            if (!isPro) {
+                Spacer(Modifier.weight(1f))
+                ProBadge(onClick = null)
+            }
         }
-        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = if (isPro) onImport else onShowPaywall,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Icon(Icons.Filled.Upload, contentDescription = null)
             Text("Import backup", modifier = Modifier.padding(start = 8.dp))
+            if (!isPro) {
+                Spacer(Modifier.weight(1f))
+                ProBadge(onClick = null)
+            }
         }
         OutlinedButton(
             onClick = onDelete,
@@ -837,6 +923,56 @@ private fun TimePickerDialog(
                     TextButton(onClick = { onConfirm(state.hour, state.minute) }) { Text("OK") }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProBadge(onClick: (() -> Unit)?) {
+    val modifier = if (onClick != null)
+        Modifier.clickable(onClick = onClick)
+    else
+        Modifier
+    Row(
+        modifier = modifier
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+            .background(Color(0xFFF57F17).copy(alpha = 0.12f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(
+            Icons.Filled.Lock,
+            contentDescription = null,
+            modifier = Modifier.size(10.dp),
+            tint = Color(0xFFF57F17),
+        )
+        Text("Pro", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF57F17), fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun ProFeatureRow(
+    icon: @Composable () -> Unit,
+    label: String,
+    sublabel: String,
+    isPro: Boolean,
+    onShowPaywall: () -> Unit,
+    actions: @Composable () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        icon()
+        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(label, style = MaterialTheme.typography.bodySmall)
+            Text(sublabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (isPro) {
+            actions()
+        } else {
+            ProBadge(onClick = onShowPaywall)
         }
     }
 }

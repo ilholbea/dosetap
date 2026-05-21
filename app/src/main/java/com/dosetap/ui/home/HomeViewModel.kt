@@ -210,6 +210,10 @@ class HomeViewModel(
 
     fun clearError() { _errorMessage.value = null }
 
+    fun unlockViaGiftCode() {
+        viewModelScope.launch { container.settingsRepository.setGiftCodeUnlocked(true) }
+    }
+
     // ===== Private helpers =====
 
     private suspend fun executeLogDose(medicationId: Long, tapTimeMillis: Long) {

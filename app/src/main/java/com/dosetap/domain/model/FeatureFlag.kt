@@ -1,25 +1,39 @@
 package com.dosetap.domain.model
 
 /**
- * Feature flags for Pro unlock gating.
+ * Runtime feature flags for Pro gating.
  *
- * In MVP all features are unlocked (proUnlocked = true).
- * When billing is added, set proUnlocked based on purchase state.
- * All Pro-gated features should check this object before enabling.
+ * Pro is unlocked via either:
+ *  - Google Play purchase ([com.dosetap.billing.BillingManager])
+ *  - A gift code redeemed through [com.dosetap.billing.GiftCodeManager]
+ *
+ * ViewModels and screens observe [com.dosetap.billing.BillingManager.isPro] directly.
+ * This object provides computed caps used throughout the codebase.
  */
 object FeatureFlag {
-    /**
-     * Whether the user has unlocked Pro features.
-     * MVP: always true (all features unlocked, billing not yet implemented).
-     */
-    val proUnlocked: Boolean = true
-
-    /** Max number of medications (Pro: unlimited, Free: 1). */
-    val maxMedications: Int get() = if (proUnlocked) Int.MAX_VALUE else 1
-
     /** Max follow-ups per medication (Pro: 4, Free: 2). */
-    val maxFollowUps: Int get() = if (proUnlocked) 4 else 2
+    fun maxFollowUps(isPro: Boolean) = if (isPro) 4 else 2
 
-    /** Whether unlimited widgets are allowed. */
-    val unlimitedWidgets: Boolean get() = proUnlocked
+    /** Max medications (Pro: unlimited, Free: 1). */
+    fun maxMedications(isPro: Boolean) = if (isPro) Int.MAX_VALUE else 1
+
+    // Features gated behind Pro
+    fun canUseOffDays(isPro: Boolean) = isPro
+    fun canUseDailyReminder(isPro: Boolean) = isPro
+    fun canUseEffectWindow(isPro: Boolean) = isPro
+    fun canUsePillCount(isPro: Boolean) = isPro
+    fun canUseCustomAlarmTone(isPro: Boolean) = isPro
+    fun canUseExportImport(isPro: Boolean) = isPro
+    fun canUseWeeklySummary(isPro: Boolean) = isPro
+    fun canUseFullStatsChart(isPro: Boolean) = isPro
+    fun canUseLateCutoff(isPro: Boolean) = isPro
+
+    // Always free
+    // - Core dose logging
+    // - Up to 2 follow-up reminders
+    // - Full 30-day history
+    // - Widget
+    // - Undo + backdate (forgetfulness is core ADHD symptom — never lock this)
+    // - Basic streak + adherence %
+    // - Double-dose protection (safety — never lock this)
 }

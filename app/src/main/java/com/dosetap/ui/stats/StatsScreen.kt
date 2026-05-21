@@ -33,6 +33,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +66,25 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
     )
 
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val isPro by container.isPro.collectAsStateWithLifecycle()
+    var showPaywall by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    if (showPaywall) {
+        com.dosetap.ui.paywall.PaywallBottomSheet(
+            price = container.billingManager.formattedPrice(),
+            onPurchase = { activity -> container.billingManager.launchPurchase(activity) },
+            onRestore = { container.billingManager.restorePurchases() },
+            onGiftCode = { code ->
+                if (container.giftCodeManager.isValid(code)) {
+                    (context.applicationContext as com.dosetap.DoseTapApp).appScope.launch {
+                        container.settingsRepository.setGiftCodeUnlocked(true)
+                    }
+                    true
+                } else false
+            },
+            onDismiss = { showPaywall = false },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -115,7 +138,11 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
                 ) {
                     item { StreakCard(state) }
                     item { AdherenceRow(state) }
-                    item { ChartCard(state.last14Days) }
+                    if (isPro) {
+                        item { ChartCard(state.last14Days) }
+                    } else {
+                        item { ChartProGate(onUnlock = { showPaywall = true }) }
+                    }
                     item { TotalDosesCard(state.totalDoses) }
                 }
             }
@@ -326,6 +353,38 @@ private fun LegendItem(color: Color, label: String) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun ChartProGate(onUnlock: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("📊", fontSize = 32.sp)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "14-day adherence chart",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "See your full history at a glance — available with Pro.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.Button(onClick = onUnlock) {
+                Text("⭐  Unlock Pro", fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 

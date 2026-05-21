@@ -105,6 +105,17 @@ class SettingsRepository(private val context: Context) {
         dataStore.edit { it[Keys.ALARM_BANNER_DISMISSED] = false }
     }
 
+    // ===== Pro unlock (gift code path) =====
+
+    /** True if user unlocked Pro via a gift code on this device. */
+    val giftCodeUnlocked: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.GIFT_CODE_UNLOCKED] ?: false
+    }
+
+    suspend fun setGiftCodeUnlocked(unlocked: Boolean) {
+        dataStore.edit { it[Keys.GIFT_CODE_UNLOCKED] = unlocked }
+    }
+
     // ===== Clear all =====
 
     suspend fun clearAll() {
@@ -138,5 +149,6 @@ class SettingsRepository(private val context: Context) {
         val TIMEZONE_CHANGE_DISMISSED = booleanPreferencesKey("timezone_change_dismissed")
         val ALARMS_WERE_ACTIVE = booleanPreferencesKey("alarms_were_active")
         val ALARM_BANNER_DISMISSED = booleanPreferencesKey("alarm_banner_dismissed")
+        val GIFT_CODE_UNLOCKED = booleanPreferencesKey("gift_code_unlocked")
     }
 }

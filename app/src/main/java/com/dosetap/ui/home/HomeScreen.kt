@@ -1,7 +1,15 @@
 package com.dosetap.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,30 +23,32 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Cancel
-import androidx.compose.material.icons.filled.HelpOutline
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -49,6 +59,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,20 +69,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dosetap.DoseTapApp
 import com.dosetap.R
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
+import com.dosetap.ui.paywall.PaywallBottomSheet
 import com.dosetap.util.BatteryOptimizationHelper
 import com.dosetap.util.OemDetector
 import com.dosetap.util.TimeFormatter
@@ -96,10 +112,11 @@ fun HomeScreen(
     )
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isPro by container.isPro.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var showHelp by remember { mutableStateOf(false) }
+    var showPaywall by remember { mutableStateOf(false) }
     var showBackdateDialog by remember { mutableStateOf(false) }
-    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.errorMessage) {
         if (uiState.errorMessage != null) {
@@ -108,33 +125,35 @@ fun HomeScreen(
         }
     }
 
-    // Warning dialog — shown before logging if double-dose, late, or off-day
+    // Dose warning dialog
     uiState.pendingWarning?.let { warning ->
         AlertDialog(
             onDismissRequest = { viewModel.cancelLogDose() },
             icon = {
-                Icon(
-                    imageVector = Icons.Filled.Warning,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
+                Text(
+                    text = when (warning.type) {
+                        DoseWarningType.DOUBLE_DOSE -> "⚠️"
+                        DoseWarningType.LATE_DOSE -> "🌙"
+                        DoseWarningType.OFF_DAY -> "📅"
+                    },
+                    fontSize = 28.sp,
                 )
             },
             title = {
                 Text(
                     text = when (warning.type) {
-                        DoseWarningType.DOUBLE_DOSE -> "Possible double dose"
-                        DoseWarningType.LATE_DOSE -> "Too late for this medication"
-                        DoseWarningType.OFF_DAY -> "Today is an off-day"
-                    }
+                        DoseWarningType.DOUBLE_DOSE -> "Double dose?"
+                        DoseWarningType.LATE_DOSE -> "Too late?"
+                        DoseWarningType.OFF_DAY -> "Off-day today"
+                    },
+                    fontWeight = FontWeight.Bold,
                 )
             },
-            text = { Text(warning.message) },
+            text = { Text(warning.message, style = MaterialTheme.typography.bodyMedium) },
             confirmButton = {
-                androidx.compose.material3.Button(
+                Button(
                     onClick = { viewModel.confirmLogDose() },
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                    )
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) { Text("Log anyway") }
             },
             dismissButton = {
@@ -148,52 +167,64 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.titleLarge,
+                        text = uiState.medication?.name ?: "DoseTap",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
                 actions = {
-                    IconButton(onClick = { showHelp = true }) {
-                        Icon(
-                            Icons.Filled.HelpOutline,
-                            contentDescription = "How it works",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (!isPro) {
+                        TextButton(
+                            onClick = { showPaywall = true },
+                        ) {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color(0xFFF57F17),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Pro",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color(0xFFF57F17),
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                     IconButton(onClick = onNavigateToStats) {
-                        Icon(
-                            Icons.Filled.BarChart,
-                            contentDescription = "Adherence stats",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Icon(Icons.Filled.BarChart, contentDescription = "Stats")
                     }
-                    IconButton(
-                        onClick = onNavigateToHistory,
-                        modifier = Modifier.semantics {
-                            contentDescription = context.getString(R.string.cd_history_button)
-                        }
-                    ) {
-                        Icon(
-                            Icons.Filled.History,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    IconButton(onClick = onNavigateToHistory) {
+                        Icon(Icons.Filled.History, contentDescription = "History")
                     }
-                    IconButton(
-                        onClick = onNavigateToSettings,
-                        modifier = Modifier.semantics {
-                            contentDescription = context.getString(R.string.cd_settings_button)
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
-                    ) {
-                        Icon(
-                            Icons.Filled.Settings,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                                onClick = { showOverflowMenu = false; onNavigateToSettings() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Log for earlier time") },
+                                leadingIcon = { Icon(Icons.Filled.Schedule, null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    if (uiState.medication != null) showBackdateDialog = true
+                                },
+                            )
+                        }
                     }
                 }
             )
@@ -206,129 +237,116 @@ fun HomeScreen(
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
-            // Alert banners
+            // Critical banners — shown only when something needs action
             if (uiState.showNotificationBanner) {
                 item {
-                    AlertBanner(
-                        message = stringResource(R.string.home_notification_denied_banner),
-                        actionLabel = stringResource(R.string.home_notification_open_settings),
+                    ActionBanner(
+                        emoji = "🔔",
+                        message = "Notifications are off — you won't get reminders",
+                        actionLabel = "Fix",
                         onAction = { BatteryOptimizationHelper.openNotificationSettings(context) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     )
                 }
             }
-
             if (uiState.showAlarmMissingBanner) {
                 item {
-                    AlertBanner(
-                        message = stringResource(R.string.home_alarm_missing_banner),
-                        actionLabel = stringResource(R.string.home_alarm_reschedule),
+                    ActionBanner(
+                        emoji = "⚡",
+                        message = "Alarms may have been stopped",
+                        actionLabel = "Reschedule",
                         onAction = { viewModel.rescheduleAlarms() },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     )
                 }
             }
-
-            if (uiState.showReliabilityBanner && OemDetector.isKnownProblematic()) {
-                item {
-                    AlertBanner(
-                        message = stringResource(R.string.home_reliability_warning),
-                        actionLabel = stringResource(R.string.home_fix_reliability),
-                        onAction = { BatteryOptimizationHelper.openOemSettings(context) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-            }
-
             if (uiState.showTimezoneChangedBanner) {
                 item {
-                    InfoBanner(
-                        message = stringResource(R.string.home_timezone_changed),
-                        actionLabel = stringResource(R.string.home_timezone_dismiss),
+                    ActionBanner(
+                        emoji = "🕐",
+                        message = "Time zone changed. Alarms still set to original times.",
+                        actionLabel = "OK",
                         onAction = { viewModel.dismissTimezoneChange() },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        isWarning = false,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     )
                 }
             }
 
-            // Off-day banner
-            if (uiState.isOffDay) {
-                item {
-                    InfoBanner(
-                        message = "Today is a scheduled off-day for ${uiState.medication?.name ?: "your medication"}.",
-                        actionLabel = "Log anyway",
-                        onAction = {
-                            uiState.medication?.let { viewModel.requestLogDose(it.id) }
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-            }
-
-            // Hero dose button
+            // Main hero dose section
             item {
                 DoseHeroSection(
-                    medication = uiState.medication,
-                    isLoading = uiState.isLoading,
-                    effectWindowUntilMillis = uiState.effectWindowUntilMillis,
-                    onLogDose = {
-                        uiState.medication?.let { viewModel.requestLogDose(it.id) }
-                    },
+                    uiState = uiState,
+                    isPro = isPro,
+                    onLogDose = { uiState.medication?.let { viewModel.requestLogDose(it.id) } },
                     onNavigateToSettings = onNavigateToSettings,
-                    onBackdate = { showBackdateDialog = true },
+                    onShowPaywall = { showPaywall = true },
                 )
-            }
-
-            // Pill count / refill warning card
-            val pillsRemaining = uiState.pillsRemaining
-            if (uiState.showRefillWarning && pillsRemaining != null) {
-                item {
-                    RefillWarningCard(
-                        pillsRemaining = pillsRemaining,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
             }
 
             // Undo banner
             val doseTime = uiState.lastDoseTimeMillis
             if (uiState.showUndoBanner && doseTime != null) {
                 item {
-                    UndoBanner(
-                        doseTimeMillis = doseTime,
-                        onUndo = { viewModel.undoLastDose() },
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = slideInVertically() + fadeIn(),
+                    ) {
+                        UndoBanner(
+                            doseTimeMillis = doseTime,
+                            onUndo = { viewModel.undoLastDose() },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+            }
+
+            // Refill warning
+            val pillsRemaining = uiState.pillsRemaining
+            if (uiState.showRefillWarning && pillsRemaining != null) {
+                item {
+                    RefillBanner(
+                        pillsRemaining = pillsRemaining,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
             }
 
-            // Today's timeline
+            // Today's timeline — minimal, only if there are events
             if (uiState.todayEvents.isNotEmpty()) {
                 item {
                     Text(
-                        text = stringResource(R.string.home_title),
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "TODAY",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                        letterSpacing = 1.5.sp,
+                        modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 8.dp),
                     )
                 }
-                items(uiState.todayEvents) { event ->
+                items(uiState.todayEvents.size) { index ->
                     DoseEventRow(
-                        event = event,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        event = uiState.todayEvents[index],
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp),
                     )
                 }
             }
         }
     }
 
-    if (showHelp) {
-        ModalBottomSheet(
-            onDismissRequest = { showHelp = false },
-            sheetState = bottomSheetState,
-        ) {
-            HowItWorksContent(onDismiss = { showHelp = false })
-        }
+    if (showPaywall) {
+        PaywallBottomSheet(
+            price = container.billingManager.formattedPrice(),
+            onPurchase = { activity -> container.billingManager.launchPurchase(activity) },
+            onRestore = { container.billingManager.restorePurchases() },
+            onGiftCode = { code ->
+                if (container.giftCodeManager.isValid(code)) {
+                    viewModel.unlockViaGiftCode()
+                    true
+                } else false
+            },
+            onDismiss = { showPaywall = false },
+        )
     }
 
     if (showBackdateDialog) {
@@ -346,147 +364,164 @@ fun HomeScreen(
 
 @Composable
 private fun DoseHeroSection(
-    medication: com.dosetap.domain.model.Medication?,
-    isLoading: Boolean,
-    effectWindowUntilMillis: Long?,
+    uiState: HomeUiState,
+    isPro: Boolean,
     onLogDose: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onBackdate: () -> Unit,
+    onShowPaywall: () -> Unit,
 ) {
     val context = LocalContext.current
-    val primary = MaterialTheme.colorScheme.primary
-    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
 
-    Box(
+    // Status: what's the current state of the medication
+    val (statusEmoji, statusText, statusColor) = when {
+        uiState.isOffDay -> Triple("📅", "Off-day today", MaterialTheme.colorScheme.secondary)
+        uiState.effectWindowUntilMillis != null ->
+            Triple("⚡", "Active until ${TimeFormatter.formatTime(context, uiState.effectWindowUntilMillis)}", Color(0xFF1565C0))
+        uiState.todayEvents.any { it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN } ->
+            Triple("✅", "Dose logged today", Color(0xFF2E7D32))
+        else -> Triple("💊", "Ready to dose", MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        primaryContainer.copy(alpha = 0.4f),
-                        MaterialTheme.colorScheme.surface,
-                    )
-                )
-            )
-            .padding(top = 32.dp, bottom = 24.dp),
-        contentAlignment = Alignment.Center,
+            .padding(top = 24.dp, bottom = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (medication != null) {
+        if (uiState.medication != null) {
+            // Status chip
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(statusColor.copy(alpha = 0.1f))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(text = statusEmoji, fontSize = 14.sp)
                 Text(
-                    text = medication.name,
-                    style = MaterialTheme.typography.headlineSmall,
+                    text = statusText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = statusColor,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 32.dp),
                 )
+            }
 
-                // Effect window indicator
-                if (effectWindowUntilMillis != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Filled.Schedule,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp),
+            Spacer(Modifier.height(32.dp))
+
+            // Big dose button with press animation
+            var pressed by remember { mutableStateOf(false) }
+            val scale by animateFloatAsState(
+                targetValue = if (pressed) 0.93f else 1f,
+                animationSpec = tween(100),
+                label = "button_scale",
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(160.dp)
+                    .scale(scale)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                             )
-                            Text(
-                                text = "Active until ${TimeFormatter.formatTime(context, effectWindowUntilMillis)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
+                        )
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = LocalIndication.current,
+                        onClick = {
+                            pressed = true
+                            onLogDose()
                         }
-                    }
-                }
-
-                Spacer(Modifier.height(24.dp))
-
-                // Large circular dose button
-                Box(
-                    modifier = Modifier
-                        .size(128.dp)
-                        .clip(CircleShape)
-                        .background(primary)
-                        .clickable(onClick = onLogDose),
-                    contentAlignment = Alignment.Center,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Medication,
-                            contentDescription = stringResource(R.string.home_log_dose),
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(40.dp),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.home_log_dose),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Text(
-                    text = stringResource(R.string.home_tap_to_record),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    onClick = onBackdate,
-                ) {
-                    Icon(
-                        Icons.Filled.Refresh,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
+                    Text(text = "💊", fontSize = 42.sp)
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Log for earlier time",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "Log dose",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.Bold,
                     )
-                }
-            } else if (!isLoading) {
-                Icon(
-                    imageVector = Icons.Filled.Medication,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.outline,
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = stringResource(R.string.home_no_medication),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(16.dp))
-                FilledTonalButton(onClick = onNavigateToSettings) {
-                    Text(stringResource(R.string.home_add_medication))
                 }
             }
+
+            // Reset pressed state after a frame
+            LaunchedEffect(pressed) {
+                if (pressed) {
+                    kotlinx.coroutines.delay(150)
+                    pressed = false
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // Last dose info
+            val lastDoseEvent = uiState.todayEvents.lastOrNull {
+                it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN
+            }
+            if (lastDoseEvent != null) {
+                Text(
+                    text = "Last dose: ${TimeFormatter.formatTime(context, lastDoseEvent.actionedAt)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = "No doses logged today",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // Off-day note + override
+            if (uiState.isOffDay && isPro) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onLogDose) {
+                    Text(
+                        "Log anyway (off-day)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+            }
+
+        } else {
+            // No medication configured
+            Spacer(Modifier.height(40.dp))
+            Text(text = "💊", fontSize = 56.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "Set up your medication",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Add your medication name and follow-up reminders to get started.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp),
+            )
+            Spacer(Modifier.height(24.dp))
+            Button(
+                onClick = onNavigateToSettings,
+                modifier = Modifier.padding(horizontal = 32.dp),
+            ) {
+                Text("Add Medication", fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(40.dp))
         }
     }
 }
@@ -494,225 +529,131 @@ private fun DoseHeroSection(
 @Composable
 private fun DoseEventRow(event: DoseEvent, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val (icon, tint, label) = when (event.action) {
-        DoseAction.INITIAL_TAP -> Triple(Icons.Filled.Medication, MaterialTheme.colorScheme.primary, stringResource(R.string.dose_action_initial_tap))
-        DoseAction.TAKEN -> Triple(Icons.Filled.CheckCircle, MaterialTheme.colorScheme.primary, stringResource(R.string.dose_action_taken))
-        DoseAction.SNOOZED -> Triple(Icons.Filled.Schedule, MaterialTheme.colorScheme.secondary, stringResource(R.string.dose_action_snoozed))
-        DoseAction.SKIPPED -> Triple(Icons.Outlined.Cancel, MaterialTheme.colorScheme.outline, stringResource(R.string.dose_action_skipped))
-        DoseAction.MISSED -> Triple(Icons.Filled.Warning, MaterialTheme.colorScheme.error, stringResource(R.string.dose_action_missed))
+    val (emoji, label, tint) = when (event.action) {
+        DoseAction.INITIAL_TAP -> Triple("💊", "Dose logged", MaterialTheme.colorScheme.primary)
+        DoseAction.TAKEN -> Triple("✅", "Taken", MaterialTheme.colorScheme.primary)
+        DoseAction.SNOOZED -> Triple("💤", "Snoozed", MaterialTheme.colorScheme.secondary)
+        DoseAction.SKIPPED -> Triple("⏭", "Skipped", MaterialTheme.colorScheme.outline)
+        DoseAction.MISSED -> Triple("❌", "Missed", MaterialTheme.colorScheme.error)
     }
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(tint.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = stringResource(R.string.cd_dose_status_icon, label),
-                    tint = tint,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = TimeFormatter.formatTime(context, event.actionedAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        Text(text = emoji, fontSize = 20.sp)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = tint,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = TimeFormatter.formatTime(context, event.actionedAt),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ActionBanner(
+    emoji: String,
+    message: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+    isWarning: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val bgColor = if (isWarning)
+        MaterialTheme.colorScheme.errorContainer
+    else
+        MaterialTheme.colorScheme.secondaryContainer
+
+    val textColor = if (isWarning)
+        MaterialTheme.colorScheme.onErrorContainer
+    else
+        MaterialTheme.colorScheme.onSecondaryContainer
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(bgColor)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = emoji, fontSize = 16.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = textColor,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onAction) {
+            Text(
+                text = actionLabel,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+            )
         }
     }
 }
 
 @Composable
-private fun AlertBanner(
-    message: String,
-    actionLabel: String,
-    onAction: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-        ),
+private fun RefillBanner(pillsRemaining: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFFFFF3E0))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp),
-            )
-            TextButton(onClick = onAction) {
-                Text(
-                    text = actionLabel,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun InfoBanner(
-    message: String,
-    actionLabel: String,
-    onAction: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 8.dp),
-            )
-            TextButton(onClick = onAction) {
-                Text(
-                    text = actionLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        }
+        Text("💊", fontSize = 16.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "$pillsRemaining pill${if (pillsRemaining == 1) "" else "s"} left — time to refill",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF5D4037),
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
 @Composable
 private fun UndoBanner(doseTimeMillis: Long, onUndo: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-        ),
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.CheckCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
+        Text("✅", fontSize = 16.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "Logged at ${TimeFormatter.formatTime(context, doseTimeMillis)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onUndo) {
             Text(
-                text = stringResource(
-                    R.string.widget_logged_at,
-                    TimeFormatter.formatTime(context, doseTimeMillis),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp),
+                text = "Undo",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
             )
-            TextButton(onClick = onUndo) {
-                Text(
-                    text = stringResource(R.string.action_undo),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RefillWarningCard(pillsRemaining: Int, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(18.dp),
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 12.dp),
-            ) {
-                Text(
-                    text = "Refill reminder",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-                Text(
-                    text = "$pillsRemaining pill${if (pillsRemaining == 1) "" else "s"} remaining — time to refill your prescription.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-            }
         }
     }
 }
@@ -735,7 +676,7 @@ private fun BackdateDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "Log for earlier time",
+                    text = "What time did you take it?",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(bottom = 16.dp),
@@ -753,93 +694,10 @@ private fun BackdateDialog(
                             set(java.util.Calendar.SECOND, 0)
                             set(java.util.Calendar.MILLISECOND, 0)
                         }
-                        // Don't allow future times
-                        val selectedMillis = minOf(cal.timeInMillis, System.currentTimeMillis())
-                        onConfirm(selectedMillis)
+                        onConfirm(minOf(cal.timeInMillis, System.currentTimeMillis()))
                     }) { Text("Log") }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun HowItWorksContent(onDismiss: () -> Unit) {
-    val steps = listOf(
-        Triple(Icons.Filled.Medication, "Log a dose", "Tap the big button or the widget any time you take your medication. Follow-up reminders fire automatically."),
-        Triple(Icons.Filled.CheckCircle, "Undo in 10 seconds", "Made a mistake? Tap \"Undo\" on the green banner right after logging to cancel."),
-        Triple(Icons.Filled.Warning, "Smart warnings", "DoseTap warns you before logging a double dose, taking medication past your \"too late\" cutoff, or on off-days."),
-        Triple(Icons.Filled.Schedule, "Effect window", "Set your medication's duration in Settings — the home screen shows \"Active until HH:mm\" so you always know when the dose wears off."),
-        Triple(Icons.Filled.Refresh, "Backdate a dose", "Forgot to log earlier? Tap \"Log for earlier time\" to record the correct time."),
-        Triple(Icons.Filled.BarChart, "Adherence stats", "Tap the chart icon for streaks, 7-day / 30-day adherence, and a 14-day visual chart."),
-        Triple(Icons.Filled.History, "Dose history", "Full history with filter by Taken / Snoozed / Skipped / Missed. Swipe left to delete any entry."),
-        Triple(Icons.Filled.Settings, "Settings", "Edit medication name, follow-up intervals, alarm tone, daily reminder, off-days, pill count, and more."),
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 32.dp),
-    ) {
-        Text(
-            text = "How DoseTap works",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        Text(
-            text = "A simple guide to get the most out of the app.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 20.dp),
-        )
-        steps.forEachIndexed { index, (icon, title, description) ->
-            Row(
-                modifier = Modifier.padding(vertical = 10.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (index < steps.lastIndex) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 54.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        TextButton(
-            onClick = onDismiss,
-            modifier = Modifier.align(Alignment.End),
-        ) {
-            Text("Got it")
         }
     }
 }

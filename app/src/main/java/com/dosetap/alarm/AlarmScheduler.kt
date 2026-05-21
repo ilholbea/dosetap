@@ -256,6 +256,23 @@ class AlarmScheduler(
         Log.d(TAG, "Weekly summary scheduled at ${trigger.timeInMillis}")
     }
 
+    /** Cancels all follow-up alarms for [medicationId] — used when deleting a medication. */
+    suspend fun cancelAllForMedication(medicationId: Long) {
+        val activeAlarms = alarmDao.getActiveByMedicationId(medicationId)
+        activeAlarms.forEach { alarm ->
+            val requestCode = buildRequestCode(alarm.tapId, alarm.followUpIndex)
+            val pendingIntent = buildAlarmPendingIntent(
+                tapId = alarm.tapId,
+                medicationId = medicationId,
+                followUpIndex = alarm.followUpIndex,
+                requestCode = requestCode,
+            )
+            alarmManager.cancel(pendingIntent)
+        }
+        alarmDao.cancelByMedicationId(medicationId)
+        Log.d(TAG, "Cancelled all alarms for medicationId=$medicationId")
+    }
+
     /** Cancels the daily reminder for [medication]. Safe to call even if none was scheduled. */
     fun cancelDailyReminder(medication: Medication) {
         val requestCode = Constants.DAILY_REMINDER_REQUEST_CODE_BASE + medication.id.toInt()

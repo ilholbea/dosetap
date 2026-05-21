@@ -28,6 +28,7 @@ private const val TAG = "SettingsViewModel"
 
 data class SettingsUiState(
     val medication: Medication? = null,
+    val medications: List<Medication> = emptyList(),
     val isBatteryOptimized: Boolean = false,
     val isKnownBadOem: Boolean = false,
     val oemName: String = "",
@@ -57,11 +58,12 @@ class SettingsViewModel(
     private val _extras = MutableStateFlow(Extras())
 
     val uiState: StateFlow<SettingsUiState> = combine(
-        container.medicationDao.observeFirst(),
+        container.medicationDao.observeAll(),
         _extras,
-    ) { medication, extras ->
+    ) { medications, extras ->
         SettingsUiState(
-            medication = medication,
+            medication = medications.firstOrNull(),
+            medications = medications,
             isBatteryOptimized = !BatteryOptimizationHelper.isIgnoringBatteryOptimization(context),
             isKnownBadOem = OemDetector.isKnownProblematic(),
             oemName = OemDetector.getOemDisplayName(),
@@ -108,6 +110,18 @@ class SettingsViewModel(
                 Log.i(TAG, "Medication saved: ${medication.name}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save medication", e)
+            }
+        }
+    }
+
+    fun deleteMedication(id: Long) {
+        viewModelScope.launch {
+            try {
+                container.alarmScheduler.cancelAllForMedication(id)
+                container.medicationDao.deleteById(id)
+                container.refreshWidgets()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete medication $id", e)
             }
         }
     }
@@ -196,5 +210,9 @@ class SettingsViewModel(
 
     fun clearImportResult() {
         _extras.value = _extras.value.copy(importResult = null, importError = null)
+    }
+
+    fun unlockProViaGiftCode() {
+        viewModelScope.launch { container.settingsRepository.setGiftCodeUnlocked(true) }
     }
 }

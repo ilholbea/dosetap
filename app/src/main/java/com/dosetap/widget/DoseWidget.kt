@@ -10,16 +10,20 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.width
 import androidx.glance.material3.ColorProviders
 import androidx.glance.state.GlanceStateDefinition
 import androidx.glance.state.PreferencesGlanceStateDefinition
@@ -45,12 +49,6 @@ class DoseWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val container = (context.applicationContext as DoseTapApp).container
         val medication = withContext(Dispatchers.IO) { container.medicationDao.getFirst() }
-        // Use getLastConfirmedDose (INITIAL_TAP or TAKEN) so that doses confirmed
-        // via the AlarmActivity "Taken" button — which updates an existing MISSED
-        // event in place rather than inserting an INITIAL_TAP — still update the
-        // widget's "last dose" display. The previous getLastInitialTap query
-        // ignored TAKEN updates, which is why the widget went stale after alarm
-        // confirmations even though update() was correctly invoked.
         val lastDoseEvent = medication?.let {
             withContext(Dispatchers.IO) { container.doseEventDao.getLastConfirmedDose(it.id) }
         }
@@ -68,8 +66,6 @@ class DoseWidget : GlanceAppWidget() {
             val prefs = currentState<Preferences>()
             val undoVisibleUntil = prefs[UndoVisibleUntilKey] ?: 0L
             val showUndo = System.currentTimeMillis() < undoVisibleUntil
-            // Always read from DataStore: update() reuses a running session and only re-reads
-            // DataStore (not DB), so DataStore is the source of truth for reactive dose time.
             val lastDoseTimeMillis = prefs[LastDoseTimeKey] ?: lastDoseEvent?.actionedAt ?: 0L
 
             GlanceTheme(
@@ -109,67 +105,66 @@ private fun WidgetContent(
         modifier = GlanceModifier
             .fillMaxSize()
             .background(GlanceTheme.colors.surface)
+            .cornerRadius(20.dp)
             .clickable(actionRunCallback<TapAction>()),
         contentAlignment = Alignment.Center,
     ) {
-        // Top-right open-app button
-        Box(
-            modifier = GlanceModifier.fillMaxSize().padding(8.dp),
-            contentAlignment = Alignment.TopEnd,
-        ) {
-            Text(
-                text = "↗",
-                modifier = GlanceModifier.clickable(openAppAction).padding(4.dp),
-                style = TextStyle(
-                    color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 14.sp,
-                ),
-            )
-        }
-
         when {
-            medicationName == null -> NoMedicationContent(context)
-            showUndo -> UndoContent(context, lastDoseTimeMillis)
-            else -> NormalContent(context, medicationName, lastDoseTimeMillis, pendingAlarms)
+            medicationName == null -> NoMedicationContent(context, openAppAction)
+            showUndo -> UndoContent(context, lastDoseTimeMillis, openAppAction)
+            else -> NormalContent(context, medicationName, lastDoseTimeMillis, pendingAlarms, openAppAction)
         }
     }
 }
 
 @Composable
-private fun NoMedicationContent(context: Context) {
+private fun NoMedicationContent(
+    context: Context,
+    openAppAction: androidx.glance.action.Action,
+) {
     Column(
         modifier = GlanceModifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Text(text = "💊", style = TextStyle(fontSize = 32.sp))
+        Spacer(GlanceModifier.height(6.dp))
         Text(
-            text = "💊",
-            style = TextStyle(fontSize = 28.sp),
+            text = "Set up DoseTap",
+            style = TextStyle(
+                color = GlanceTheme.colors.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+            ),
         )
-        Spacer(GlanceModifier.height(8.dp))
+        Spacer(GlanceModifier.height(2.dp))
         Text(
-            text = context.getString(R.string.widget_no_medication),
+            text = "Tap to add medication →",
             style = TextStyle(
                 color = GlanceTheme.colors.onSurfaceVariant,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 11.sp,
             ),
+            modifier = GlanceModifier.clickable(openAppAction),
         )
     }
 }
 
 @Composable
-private fun UndoContent(context: Context, lastDoseTimeMillis: Long) {
+private fun UndoContent(
+    context: Context,
+    lastDoseTimeMillis: Long,
+    openAppAction: androidx.glance.action.Action,
+) {
     Column(
         modifier = GlanceModifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "✓ Logged",
+            text = "✅ Dose logged",
             style = TextStyle(
                 color = GlanceTheme.colors.primary,
-                fontSize = 18.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
             ),
         )
@@ -178,16 +173,16 @@ private fun UndoContent(context: Context, lastDoseTimeMillis: Long) {
             text = TimeFormatter.formatTime(context, lastDoseTimeMillis),
             style = TextStyle(
                 color = GlanceTheme.colors.primary,
-                fontSize = 22.sp,
+                fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
             ),
         )
-        Spacer(GlanceModifier.height(8.dp))
+        Spacer(GlanceModifier.height(6.dp))
         Text(
-            text = "Tap to undo",
+            text = "Tap again to undo",
             style = TextStyle(
                 color = GlanceTheme.colors.onSurfaceVariant,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
             ),
         )
     }
@@ -199,67 +194,90 @@ private fun NormalContent(
     medicationName: String,
     lastDoseTimeMillis: Long,
     pendingAlarms: List<ScheduledAlarm>,
+    openAppAction: androidx.glance.action.Action,
 ) {
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Medication name
-        Text(
-            text = medicationName,
-            style = TextStyle(
-                color = GlanceTheme.colors.onSurface,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-            ),
-            maxLines = 1,
-        )
-
-        Spacer(GlanceModifier.height(10.dp))
-
-        // Last dose
-        if (lastDoseTimeMillis > 0L) {
-            val elapsed = System.currentTimeMillis() - lastDoseTimeMillis
+        // Header: emoji + med name + open arrow
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = "💊", style = TextStyle(fontSize = 18.sp))
+            Spacer(GlanceModifier.width(6.dp))
             Text(
-                text = context.getString(R.string.home_last_dose, TimeFormatter.formatTime(context, lastDoseTimeMillis)),
+                text = medicationName,
                 style = TextStyle(
-                    color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    color = GlanceTheme.colors.onSurface,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
                 ),
+                modifier = GlanceModifier.defaultWeight(),
                 maxLines = 1,
             )
+            Text(
+                text = "↗",
+                style = TextStyle(
+                    color = GlanceTheme.colors.onSurfaceVariant,
+                    fontSize = 14.sp,
+                ),
+                modifier = GlanceModifier.clickable(openAppAction),
+            )
+        }
+
+        Spacer(GlanceModifier.height(8.dp))
+
+        // Last dose block
+        if (lastDoseTimeMillis > 0L) {
+            val elapsed = System.currentTimeMillis() - lastDoseTimeMillis
             Text(
                 text = formatElapsed(elapsed),
                 style = TextStyle(
                     color = GlanceTheme.colors.primary,
-                    fontSize = 20.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
+                ),
+                maxLines = 1,
+            )
+            Text(
+                text = "since last dose · ${TimeFormatter.formatTime(context, lastDoseTimeMillis)}",
+                style = TextStyle(
+                    color = GlanceTheme.colors.onSurfaceVariant,
+                    fontSize = 11.sp,
                 ),
                 maxLines = 1,
             )
         } else {
             Text(
-                text = context.getString(R.string.widget_tap_to_log),
+                text = "No dose today",
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 13.sp,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
                 ),
-                maxLines = 1,
+            )
+            Text(
+                text = "Tap to log →",
+                style = TextStyle(
+                    color = GlanceTheme.colors.primary,
+                    fontSize = 12.sp,
+                ),
             )
         }
 
         // Next alarm
         if (pendingAlarms.isNotEmpty()) {
-            Spacer(GlanceModifier.height(8.dp))
-            val nextTime = TimeFormatter.formatTime(context, pendingAlarms[0].triggerAtMillis)
+            Spacer(GlanceModifier.height(6.dp))
             Text(
-                text = context.getString(R.string.widget_next_doses, nextTime),
+                text = "⏰ Follow-up: ${TimeFormatter.formatTime(context, pendingAlarms[0].triggerAtMillis)}",
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                 ),
                 maxLines = 1,
             )
@@ -270,8 +288,8 @@ private fun NormalContent(
 private fun formatElapsed(millis: Long): String {
     val minutes = millis / 60_000
     return when {
-        minutes < 60 -> "${minutes}m ago"
-        minutes < 60 * 24 -> "${minutes / 60}h ${minutes % 60}m ago"
-        else -> "${minutes / (60 * 24)}d ago"
+        minutes < 60 -> "${minutes}m"
+        minutes < 60 * 24 -> "${minutes / 60}h ${minutes % 60}m"
+        else -> "${minutes / (60 * 24)}d"
     }
 }
