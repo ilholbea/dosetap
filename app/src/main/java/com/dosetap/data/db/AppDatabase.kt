@@ -20,7 +20,7 @@ import com.dosetap.domain.model.ScheduledAlarm
  */
 @Database(
     entities = [Medication::class, DoseEvent::class, ScheduledAlarm::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -40,6 +40,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medications ADD COLUMN pillCount INTEGER")
+                db.execSQL("ALTER TABLE medications ADD COLUMN refillAlertAt INTEGER NOT NULL DEFAULT 7")
+                db.execSQL("ALTER TABLE medications ADD COLUMN offDays TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE medications ADD COLUMN durationMinutes INTEGER")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -55,7 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DATABASE_NAME,
             )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
                 .build()
         }

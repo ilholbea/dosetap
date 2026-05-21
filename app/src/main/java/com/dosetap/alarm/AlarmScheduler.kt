@@ -161,6 +161,9 @@ class AlarmScheduler(
         // Re-schedule daily reminders for medications that have them configured
         val allMedications = medicationDao.getAll()
         allMedications.filter { it.dailyReminderMinutes != null }.forEach { scheduleDailyReminder(it) }
+
+        // Re-schedule weekly summary
+        scheduleWeeklySummary()
     }
 
     /**
@@ -203,6 +206,14 @@ class AlarmScheduler(
         if (trigger.timeInMillis <= System.currentTimeMillis()) {
             trigger.add(java.util.Calendar.DAY_OF_YEAR, 1)
         }
+        // Skip off-days: advance to the next non-off day
+        if (medication.offDays.isNotEmpty()) {
+            var attempts = 0
+            while (trigger.get(java.util.Calendar.DAY_OF_WEEK) in medication.offDays && attempts < 7) {
+                trigger.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                attempts++
+            }
+        }
 
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra(Constants.EXTRA_MEDICATION_ID, medication.id)
@@ -217,6 +228,32 @@ class AlarmScheduler(
         )
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.timeInMillis, pendingIntent)
         Log.d(TAG, "Daily reminder scheduled for medication ${medication.id} at ${trigger.timeInMillis}")
+    }
+
+    /**
+     * Schedules the weekly adherence summary notification for Sunday at [Constants.WEEKLY_SUMMARY_HOUR].
+     * If that time has already passed this week, schedules for next Sunday.
+     */
+    fun scheduleWeeklySummary() {
+        val trigger = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.DAY_OF_WEEK, Constants.WEEKLY_SUMMARY_DAY)
+            set(java.util.Calendar.HOUR_OF_DAY, Constants.WEEKLY_SUMMARY_HOUR)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        if (trigger.timeInMillis <= System.currentTimeMillis()) {
+            trigger.add(java.util.Calendar.WEEK_OF_YEAR, 1)
+        }
+        val intent = Intent(context, WeeklySummaryReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            Constants.WEEKLY_SUMMARY_REQUEST_CODE.and(0x7FFFFFFF),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.timeInMillis, pendingIntent)
+        Log.d(TAG, "Weekly summary scheduled at ${trigger.timeInMillis}")
     }
 
     /** Cancels the daily reminder for [medication]. Safe to call even if none was scheduled. */

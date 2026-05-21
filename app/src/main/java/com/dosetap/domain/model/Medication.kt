@@ -29,6 +29,17 @@ data class Medication(
     val dailyReminderMinutes: Int? = null,
     /** Minutes from midnight after which it's too late to take this medication (insomnia risk). null = no cutoff. */
     val lateCutoffMinutes: Int? = null,
+    /** Current pill count for refill tracking, null = not tracking. */
+    val pillCount: Int? = null,
+    /** Show refill warning when pillCount drops to this number or below. */
+    val refillAlertAt: Int = 7,
+    /**
+     * Calendar.DAY_OF_WEEK values (1=Sunday … 7=Saturday) on which reminders are suppressed.
+     * Daily reminders and the dose button off-day warning use this list.
+     */
+    val offDays: List<Int> = emptyList(),
+    /** How long this medication stays active in minutes, e.g. 240 for a 4-hour IR tablet. null = unknown. */
+    val durationMinutes: Int? = null,
     /** Unix epoch millis when this medication was created. */
     val createdAt: Long = System.currentTimeMillis(),
 )

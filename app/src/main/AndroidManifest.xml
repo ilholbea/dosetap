@@ -85,6 +85,11 @@
             android:name=".alarm.DoseActionReceiver"
             android:exported="false" />
 
+        <!-- Weekly adherence summary (Sunday 8pm) -->
+        <receiver
+            android:name=".alarm.WeeklySummaryReceiver"
+            android:exported="false" />
+
         <!--
             BootReceiver listens for all 4 system events that require alarm rescheduling:
             1. BOOT_COMPLETED — device rebooted (alarms are lost)

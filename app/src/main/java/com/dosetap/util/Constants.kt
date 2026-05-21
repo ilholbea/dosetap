@@ -66,4 +66,11 @@ object Constants {
     const val EXTRA_IS_DAILY_REMINDER = "extra_is_daily_reminder"
     /** Request code base for daily reminder alarms. Well above follow-up code space. */
     const val DAILY_REMINDER_REQUEST_CODE_BASE = 0x100_000
+
+    // ===== Weekly summary =====
+    const val WEEKLY_SUMMARY_REQUEST_CODE = 0x200_000
+    const val WEEKLY_SUMMARY_NOTIFICATION_ID = 99_998
+    /** Day of week for the weekly summary (Sunday = 1). */
+    const val WEEKLY_SUMMARY_DAY = 1 // Calendar.SUNDAY
+    const val WEEKLY_SUMMARY_HOUR = 20 // 8 PM
 }

@@ -187,4 +187,36 @@
     <string name="cd_remove_followup">Remove follow-up %1$d</string>
     <string name="cd_dose_status_icon">Dose status: %1$s</string>
     <string name="cd_reliability_fix">Fix reliability for %1$s</string>
+
+    <!-- Off-days -->
+    <string name="off_day_banner">Today is a scheduled off-day for %1$s.</string>
+    <string name="off_day_log_anyway">Log anyway</string>
+    <string name="settings_off_days_title">Off-days (no reminders)</string>
+
+    <!-- Pill tracking -->
+    <string name="pill_count_remaining">%1$d pills remaining</string>
+    <string name="pill_count_refill_title">Refill reminder</string>
+    <string name="pill_count_refill_message">%1$d pills remaining — time to refill your prescription.</string>
+    <string name="settings_pill_count_title">Pill count tracking</string>
+    <string name="settings_pill_count_set">Set count</string>
+    <string name="settings_refill_alert_at">Refill warning at (pills)</string>
+
+    <!-- Effect window -->
+    <string name="home_active_until">Active until %1$s</string>
+    <string name="settings_duration_title">Effect window (minutes)</string>
+    <string name="settings_duration_hint">e.g. 240 for 4-hour IR tablet</string>
+
+    <!-- Backdate -->
+    <string name="home_log_earlier">Log for earlier time</string>
+    <string name="backdate_dialog_title">Log for earlier time</string>
+
+    <!-- Dose warnings -->
+    <string name="warning_double_dose_title">Possible double dose</string>
+    <string name="warning_late_dose_title">Too late for this medication</string>
+    <string name="warning_off_day_title">Today is an off-day</string>
+    <string name="warning_log_anyway">Log anyway</string>
+
+    <!-- Weekly summary -->
+    <string name="weekly_summary_title">Weekly Dose Summary</string>
+    <string name="weekly_summary_body">This week: %1$d/7 days on time. Best streak: %2$d days.</string>
 </resources>

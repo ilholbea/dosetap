@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,6 +38,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -95,6 +98,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showHelp by remember { mutableStateOf(false) }
+    var showBackdateDialog by remember { mutableStateOf(false) }
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(uiState.errorMessage) {
@@ -102,6 +106,41 @@ fun HomeScreen(
             snackbarHostState.showSnackbar(uiState.errorMessage!!)
             viewModel.clearError()
         }
+    }
+
+    // Warning dialog — shown before logging if double-dose, late, or off-day
+    uiState.pendingWarning?.let { warning ->
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelLogDose() },
+            icon = {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            },
+            title = {
+                Text(
+                    text = when (warning.type) {
+                        DoseWarningType.DOUBLE_DOSE -> "Possible double dose"
+                        DoseWarningType.LATE_DOSE -> "Too late for this medication"
+                        DoseWarningType.OFF_DAY -> "Today is an off-day"
+                    }
+                )
+            },
+            text = { Text(warning.message) },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = { viewModel.confirmLogDose() },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                    )
+                ) { Text("Log anyway") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelLogDose() }) { Text("Cancel") }
+            }
+        )
     }
 
     Scaffold(
@@ -212,16 +251,42 @@ fun HomeScreen(
                 }
             }
 
+            // Off-day banner
+            if (uiState.isOffDay) {
+                item {
+                    InfoBanner(
+                        message = "Today is a scheduled off-day for ${uiState.medication?.name ?: "your medication"}.",
+                        actionLabel = "Log anyway",
+                        onAction = {
+                            uiState.medication?.let { viewModel.requestLogDose(it.id) }
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
             // Hero dose button
             item {
                 DoseHeroSection(
                     medication = uiState.medication,
                     isLoading = uiState.isLoading,
+                    effectWindowUntilMillis = uiState.effectWindowUntilMillis,
                     onLogDose = {
-                        uiState.medication?.let { viewModel.logDose(it.id) }
+                        uiState.medication?.let { viewModel.requestLogDose(it.id) }
                     },
                     onNavigateToSettings = onNavigateToSettings,
+                    onBackdate = { showBackdateDialog = true },
                 )
+            }
+
+            // Pill count / refill warning card
+            if (uiState.showRefillWarning && uiState.pillsRemaining != null) {
+                item {
+                    RefillWarningCard(
+                        pillsRemaining = uiState.pillsRemaining,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
             }
 
             // Undo banner
@@ -264,14 +329,28 @@ fun HomeScreen(
             HowItWorksContent(onDismiss = { showHelp = false })
         }
     }
+
+    if (showBackdateDialog) {
+        uiState.medication?.let { med ->
+            BackdateDialog(
+                onConfirm = { timeMillis ->
+                    showBackdateDialog = false
+                    viewModel.logDoseAt(med.id, timeMillis)
+                },
+                onDismiss = { showBackdateDialog = false },
+            )
+        }
+    }
 }
 
 @Composable
 private fun DoseHeroSection(
     medication: com.dosetap.domain.model.Medication?,
     isLoading: Boolean,
+    effectWindowUntilMillis: Long?,
     onLogDose: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onBackdate: () -> Unit,
 ) {
     val context = LocalContext.current
     val primary = MaterialTheme.colorScheme.primary
@@ -304,7 +383,37 @@ private fun DoseHeroSection(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 32.dp),
                 )
-                Spacer(Modifier.height(28.dp))
+
+                // Effect window indicator
+                if (effectWindowUntilMillis != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Schedule,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Text(
+                                text = "Active until ${TimeFormatter.formatTime(context, effectWindowUntilMillis)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
 
                 // Large circular dose button
                 Box(
@@ -335,13 +444,30 @@ private fun DoseHeroSection(
                     }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(12.dp))
 
                 Text(
                     text = stringResource(R.string.home_tap_to_record),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    onClick = onBackdate,
+                ) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Log for earlier time",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else if (!isLoading) {
                 Icon(
                     imageVector = Icons.Filled.Medication,
@@ -549,13 +675,104 @@ private fun UndoBanner(doseTimeMillis: Long, onUndo: () -> Unit, modifier: Modif
 }
 
 @Composable
+private fun RefillWarningCard(pillsRemaining: Int, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(18.dp),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            ) {
+                Text(
+                    text = "Refill reminder",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    text = "$pillsRemaining pill${if (pillsRemaining == 1) "" else "s"} remaining — time to refill your prescription.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackdateDialog(
+    onConfirm: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val now = java.util.Calendar.getInstance()
+    val timePickerState = rememberTimePickerState(
+        initialHour = now.get(java.util.Calendar.HOUR_OF_DAY),
+        initialMinute = now.get(java.util.Calendar.MINUTE),
+    )
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(16.dp)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "Log for earlier time",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+                androidx.compose.material3.TimePicker(state = timePickerState)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    TextButton(onClick = {
+                        val cal = java.util.Calendar.getInstance().apply {
+                            set(java.util.Calendar.HOUR_OF_DAY, timePickerState.hour)
+                            set(java.util.Calendar.MINUTE, timePickerState.minute)
+                            set(java.util.Calendar.SECOND, 0)
+                            set(java.util.Calendar.MILLISECOND, 0)
+                        }
+                        // Don't allow future times
+                        val selectedMillis = minOf(cal.timeInMillis, System.currentTimeMillis())
+                        onConfirm(selectedMillis)
+                    }) { Text("Log") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun HowItWorksContent(onDismiss: () -> Unit) {
     val steps = listOf(
-        Triple(Icons.Filled.Medication, "Take your pill", "Press the big button or tap the widget on your home screen each time you take your medication."),
-        Triple(Icons.Filled.CheckCircle, "Undo if needed", "Made a mistake? Tap \"Undo\" within 30 seconds to cancel the last logged dose."),
-        Triple(Icons.Filled.Schedule, "Follow-up reminders", "After you log a dose, DoseTap sends reminders at the intervals you configured — so you know when the next check is due."),
-        Triple(Icons.Filled.History, "View your history", "Tap the clock icon (top-right) to see all past doses. Swipe left on any entry to delete it."),
-        Triple(Icons.Filled.Settings, "Change settings", "Tap the gear icon to edit your medication name, adjust follow-up intervals, or send a test reminder."),
+        Triple(Icons.Filled.Medication, "Log a dose", "Tap the big button or the widget any time you take your medication. Follow-up reminders fire automatically."),
+        Triple(Icons.Filled.CheckCircle, "Undo in 10 seconds", "Made a mistake? Tap \"Undo\" on the green banner right after logging to cancel."),
+        Triple(Icons.Filled.Warning, "Smart warnings", "DoseTap warns you before logging a double dose, taking medication past your \"too late\" cutoff, or on off-days."),
+        Triple(Icons.Filled.Schedule, "Effect window", "Set your medication's duration in Settings — the home screen shows \"Active until HH:mm\" so you always know when the dose wears off."),
+        Triple(Icons.Filled.Refresh, "Backdate a dose", "Forgot to log earlier? Tap \"Log for earlier time\" to record the correct time."),
+        Triple(Icons.Filled.BarChart, "Adherence stats", "Tap the chart icon for streaks, 7-day / 30-day adherence, and a 14-day visual chart."),
+        Triple(Icons.Filled.History, "Dose history", "Full history with filter by Taken / Snoozed / Skipped / Missed. Swipe left to delete any entry."),
+        Triple(Icons.Filled.Settings, "Settings", "Edit medication name, follow-up intervals, alarm tone, daily reminder, off-days, pill count, and more."),
     )
 
     Column(

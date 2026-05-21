@@ -37,6 +37,10 @@ class BackupManager(
                 put("soundUri", med.soundUri ?: JSONObject.NULL)
                 put("dailyReminderMinutes", med.dailyReminderMinutes ?: JSONObject.NULL)
                 put("lateCutoffMinutes", med.lateCutoffMinutes ?: JSONObject.NULL)
+                put("pillCount", med.pillCount ?: JSONObject.NULL)
+                put("refillAlertAt", med.refillAlertAt)
+                put("offDays", JSONArray(med.offDays))
+                put("durationMinutes", med.durationMinutes ?: JSONObject.NULL)
                 put("createdAt", med.createdAt)
             }.also { medsArray.put(it) }
         }
@@ -69,6 +73,7 @@ class BackupManager(
         val medications = (0 until medsArray.length()).map { i ->
             val obj = medsArray.getJSONObject(i)
             val followUpsJson = obj.getJSONArray("followUps")
+            val offDaysJson = obj.optJSONArray("offDays")
             Medication(
                 id = obj.getLong("id"),
                 name = obj.getString("name"),
@@ -76,6 +81,10 @@ class BackupManager(
                 soundUri = if (obj.isNull("soundUri")) null else obj.optString("soundUri", null),
                 dailyReminderMinutes = if (obj.isNull("dailyReminderMinutes")) null else obj.optInt("dailyReminderMinutes"),
                 lateCutoffMinutes = if (obj.isNull("lateCutoffMinutes")) null else obj.optInt("lateCutoffMinutes"),
+                pillCount = if (obj.isNull("pillCount")) null else obj.optInt("pillCount"),
+                refillAlertAt = obj.optInt("refillAlertAt", 7),
+                offDays = if (offDaysJson != null) (0 until offDaysJson.length()).map { j -> offDaysJson.getInt(j) } else emptyList(),
+                durationMinutes = if (obj.isNull("durationMinutes")) null else obj.optInt("durationMinutes"),
                 createdAt = obj.getLong("createdAt"),
             )
         }

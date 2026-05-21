@@ -25,14 +25,18 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Battery0Bar
 import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,6 +45,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +67,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -272,8 +278,17 @@ private fun MedicationSection(
     var soundUri by remember(medication) { mutableStateOf(medication?.soundUri) }
     var dailyReminderMinutes by remember(medication) { mutableStateOf(medication?.dailyReminderMinutes) }
     var lateCutoffMinutes by remember(medication) { mutableStateOf(medication?.lateCutoffMinutes) }
+    var pillCount by remember(medication) { mutableStateOf(medication?.pillCount) }
+    var refillAlertAt by remember(medication) { mutableIntStateOf(medication?.refillAlertAt ?: 7) }
+    val offDays = remember(medication) {
+        mutableStateListOf(*(medication?.offDays ?: emptyList<Int>()).toTypedArray())
+    }
+    var durationMinutes by remember(medication) { mutableStateOf(medication?.durationMinutes) }
+    var durationText by remember(medication) { mutableStateOf(medication?.durationMinutes?.toString() ?: "") }
+    var pillCountText by remember(medication) { mutableStateOf(medication?.pillCount?.toString() ?: "") }
     var showDailyTimePicker by remember { mutableStateOf(false) }
     var showCutoffTimePicker by remember { mutableStateOf(false) }
+    var showSetPillCountDialog by remember { mutableStateOf(false) }
 
     // Alarm tone picker
     val ringtoneLauncher = rememberLauncherForActivityResult(
@@ -322,6 +337,23 @@ private fun MedicationSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (medication.pillCount != null) {
+                        Text(
+                            text = "${medication.pillCount} pills remaining",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (medication.pillCount <= medication.refillAlertAt)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (medication.durationMinutes != null) {
+                        Text(
+                            text = "Effect window: ${medication.durationMinutes / 60}h ${medication.durationMinutes % 60}min",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = { editing = true },
@@ -451,6 +483,145 @@ private fun MedicationSection(
                     }
                 }
 
+                // Off-days row
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        "Off-days (no reminder)",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 12.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                val dayLabels = listOf(
+                    java.util.Calendar.SUNDAY to "Sun",
+                    java.util.Calendar.MONDAY to "Mon",
+                    java.util.Calendar.TUESDAY to "Tue",
+                    java.util.Calendar.WEDNESDAY to "Wed",
+                    java.util.Calendar.THURSDAY to "Thu",
+                    java.util.Calendar.FRIDAY to "Fri",
+                    java.util.Calendar.SATURDAY to "Sat",
+                )
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    dayLabels.forEach { (dow, label) ->
+                        FilterChip(
+                            selected = dow in offDays,
+                            onClick = {
+                                if (dow in offDays) offDays.remove(dow) else offDays.add(dow)
+                            },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+
+                // Duration row
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("Effect window (hours)", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (durationMinutes == null) "Not set" else "${durationMinutes!! / 60}h ${durationMinutes!! % 60}min",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = durationText,
+                    onValueChange = { v ->
+                        durationText = v.filter { it.isDigit() }.take(3)
+                        durationMinutes = durationText.toIntOrNull()?.let { it * 60 }.takeIf { durationText.isNotEmpty() }
+                    },
+                    label = { Text("Duration (minutes)", style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                    ),
+                    supportingText = { Text("e.g. 240 for 4-hour IR tablet") },
+                )
+
+                // Pill count row
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.LocalPharmacy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("Pill count tracking", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (pillCount == null) "Disabled" else "$pillCount pills remaining",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { showSetPillCountDialog = true }) {
+                        Text(if (pillCount == null) "Enable" else "Update")
+                    }
+                    if (pillCount != null) {
+                        TextButton(onClick = { pillCount = null; pillCountText = "" }) { Text("Off") }
+                    }
+                }
+
+                if (pillCount != null) {
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = refillAlertAt.toString(),
+                        onValueChange = { v ->
+                            v.filter { it.isDigit() }.toIntOrNull()?.let { refillAlertAt = it }
+                        },
+                        label = { Text("Refill warning at (pills)", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                        ),
+                    )
+                }
+
+                if (showSetPillCountDialog) {
+                    var newCountText by remember { mutableStateOf(pillCount?.toString() ?: "") }
+                    AlertDialog(
+                        onDismissRequest = { showSetPillCountDialog = false },
+                        title = { Text("Set pill count") },
+                        text = {
+                            OutlinedTextField(
+                                value = newCountText,
+                                onValueChange = { newCountText = it.filter { c -> c.isDigit() }.take(4) },
+                                label = { Text("Pills remaining") },
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                                ),
+                            )
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                pillCount = newCountText.toIntOrNull()
+                                pillCountText = newCountText
+                                showSetPillCountDialog = false
+                            }) { Text("Set") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showSetPillCountDialog = false }) { Text("Cancel") }
+                        }
+                    )
+                }
+
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(
@@ -469,6 +640,10 @@ private fun MedicationSection(
                                         soundUri = soundUri,
                                         dailyReminderMinutes = dailyReminderMinutes,
                                         lateCutoffMinutes = lateCutoffMinutes,
+                                        pillCount = pillCount,
+                                        refillAlertAt = refillAlertAt,
+                                        offDays = offDays.toList(),
+                                        durationMinutes = durationMinutes,
                                     )
                                 )
                                 editing = false

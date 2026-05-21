@@ -71,6 +71,11 @@ class LogDoseUseCase(
             baseTimeMillis = tapTimeMillis,
         )
 
+        // Decrement pill count if tracking is enabled
+        if (medication.pillCount != null && medication.pillCount > 0) {
+            medicationDao.update(medication.copy(pillCount = medication.pillCount - 1))
+        }
+
         Log.i(TAG, "Dose logged: tapId=$tapEventId medicationId=$medicationId at $tapTimeMillis")
         return tapEventId
     }
