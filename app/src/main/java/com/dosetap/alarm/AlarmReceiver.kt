@@ -13,9 +13,11 @@ import android.util.Log
 import com.dosetap.AlarmActivity
 import com.dosetap.AppContainer
 import com.dosetap.DoseTapApp
+import com.dosetap.MainActivity
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
 import com.dosetap.util.Constants
+import com.dosetap.util.TimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,13 +42,14 @@ class AlarmReceiver : BroadcastReceiver() {
         val tapId = intent.getLongExtra(Constants.EXTRA_TAP_ID, -1L)
         val medicationId = intent.getLongExtra(Constants.EXTRA_MEDICATION_ID, -1L)
         val followUpIndex = intent.getIntExtra(Constants.EXTRA_FOLLOWUP_INDEX, 0)
+        val isDailyReminder = intent.getBooleanExtra(Constants.EXTRA_IS_DAILY_REMINDER, false)
 
         if (medicationId == -1L) {
             Log.e(TAG, "AlarmReceiver received intent with missing medicationId")
             return
         }
 
-        Log.d(TAG, "AlarmReceiver fired: tapId=$tapId medicationId=$medicationId followUpIndex=$followUpIndex")
+        Log.d(TAG, "AlarmReceiver fired: tapId=$tapId medicationId=$medicationId followUpIndex=$followUpIndex isDailyReminder=$isDailyReminder")
 
         // Acquire WakeLock to prevent CPU from sleeping before we show the notification
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -63,7 +66,11 @@ class AlarmReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 val container = (context.applicationContext as DoseTapApp).container
-                handleAlarm(context, container, tapId, medicationId, followUpIndex)
+                if (isDailyReminder) {
+                    handleDailyReminder(context, container, medicationId)
+                } else {
+                    handleAlarm(context, container, tapId, medicationId, followUpIndex)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling alarm for tapId=$tapId medicationId=$medicationId", e)
             } finally {
@@ -191,6 +198,43 @@ class AlarmReceiver : BroadcastReceiver() {
 
         container.refreshWidgets()
         Log.d(TAG, "Notification posted: id=$notificationId for medication=${medication.name}")
+    }
+
+    private suspend fun handleDailyReminder(context: Context, container: AppContainer, medicationId: Long) {
+        val medication = container.medicationDao.getById(medicationId) ?: return
+
+        val todayStart = TimeFormatter.startOfDay(System.currentTimeMillis())
+        val todayEvents = container.doseEventDao.getForMedicationSince(medicationId, todayStart)
+        val hasTakenToday = todayEvents.any {
+            it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN
+        }
+
+        if (!hasTakenToday) {
+            val openAppPi = PendingIntent.getActivity(
+                context,
+                (Constants.DAILY_REMINDER_REQUEST_CODE_BASE + medicationId.toInt()).and(0x7FFFFFFF),
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val notification = Notification.Builder(context, Constants.NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentTitle("Time for ${medication.name}")
+                .setContentText("You haven't logged today's dose yet.")
+                .setCategory(Notification.CATEGORY_REMINDER)
+                .setAutoCancel(true)
+                .setContentIntent(openAppPi)
+                .build()
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify((Constants.DAILY_REMINDER_REQUEST_CODE_BASE + medicationId.toInt()).and(0x7FFFFFFF), notification)
+            Log.d(TAG, "Daily reminder notification posted for ${medication.name}")
+        } else {
+            Log.d(TAG, "Daily reminder skipped — dose already logged today for ${medication.name}")
+        }
+
+        // Reschedule for tomorrow
+        container.alarmScheduler.scheduleDailyReminder(medication)
     }
 
     companion object {

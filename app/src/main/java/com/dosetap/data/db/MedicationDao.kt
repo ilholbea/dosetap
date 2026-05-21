@@ -33,6 +33,9 @@ interface MedicationDao {
     @Query("DELETE FROM medications WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("SELECT * FROM medications ORDER BY createdAt ASC")
+    suspend fun getAll(): List<Medication>
+
     @Query("DELETE FROM medications")
     suspend fun deleteAll()
 }

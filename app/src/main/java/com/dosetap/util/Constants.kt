@@ -61,4 +61,9 @@ object Constants {
 
     // ===== Default follow-up intervals =====
     val DEFAULT_FOLLOWUPS = listOf(240, 480) // +4h, +8h in minutes
+
+    // ===== Daily reminder =====
+    const val EXTRA_IS_DAILY_REMINDER = "extra_is_daily_reminder"
+    /** Request code base for daily reminder alarms. Well above follow-up code space. */
+    const val DAILY_REMINDER_REQUEST_CODE_BASE = 0x100_000
 }

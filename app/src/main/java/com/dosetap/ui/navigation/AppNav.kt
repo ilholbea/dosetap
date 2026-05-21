@@ -14,6 +14,7 @@ import com.dosetap.ui.history.HistoryScreen
 import com.dosetap.ui.home.HomeScreen
 import com.dosetap.ui.onboarding.OnboardingScreen
 import com.dosetap.ui.settings.SettingsScreen
+import com.dosetap.ui.stats.StatsScreen
 
 /** All navigation destinations in the app. */
 sealed class Screen(val route: String) {
@@ -21,6 +22,7 @@ sealed class Screen(val route: String) {
     data object Home : Screen("home")
     data object Settings : Screen("settings")
     data object History : Screen("history")
+    data object Stats : Screen("stats")
 }
 
 @Composable
@@ -48,6 +50,7 @@ fun AppNav(navController: NavHostController = rememberNavController()) {
             HomeScreen(
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                 onNavigateToHistory = { navController.navigate(Screen.History.route) },
+                onNavigateToStats = { navController.navigate(Screen.Stats.route) },
             )
         }
 
@@ -59,6 +62,12 @@ fun AppNav(navController: NavHostController = rememberNavController()) {
 
         composable(Screen.History.route) {
             HistoryScreen(
+                onNavigateBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Screen.Stats.route) {
+            StatsScreen(
                 onNavigateBack = { navController.popBackStack() },
             )
         }

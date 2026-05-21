@@ -16,6 +16,7 @@ import com.dosetap.data.prefs.SettingsRepository
 import com.dosetap.domain.usecase.HandleDoseActionUseCase
 import com.dosetap.domain.usecase.LogDoseUseCase
 import com.dosetap.domain.usecase.ScheduleFollowUpsUseCase
+import com.dosetap.util.BackupManager
 
 /**
  * Manual DI container. Created once in [DoseTapApp] and held for the app lifetime.
@@ -73,6 +74,14 @@ class AppContainer(context: Context) {
             doseEventDao = doseEventDao,
             alarmScheduler = alarmScheduler,
             medicationDao = medicationDao,
+        )
+    }
+
+    val backupManager: BackupManager by lazy {
+        BackupManager(
+            medicationDao = medicationDao,
+            doseEventDao = doseEventDao,
+            alarmScheduler = alarmScheduler,
         )
     }
 

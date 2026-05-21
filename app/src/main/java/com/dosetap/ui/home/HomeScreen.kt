@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Medication
@@ -77,6 +78,7 @@ import com.dosetap.util.TimeFormatter
 fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToHistory: () -> Unit,
+    onNavigateToStats: () -> Unit,
 ) {
     val context = LocalContext.current
     val container = (context.applicationContext as DoseTapApp).container
@@ -120,6 +122,13 @@ fun HomeScreen(
                         Icon(
                             Icons.Filled.HelpOutline,
                             contentDescription = "How it works",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = onNavigateToStats) {
+                        Icon(
+                            Icons.Filled.BarChart,
+                            contentDescription = "Adherence stats",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

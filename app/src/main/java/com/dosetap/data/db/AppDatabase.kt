@@ -4,6 +4,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import android.content.Context
 import com.dosetap.domain.model.DoseEvent
 import com.dosetap.domain.model.Medication
@@ -14,10 +16,11 @@ import com.dosetap.domain.model.ScheduledAlarm
  *
  * Schema version history:
  * - v1: Initial schema (Medication, DoseEvent, ScheduledAlarm)
+ * - v2: Added dailyReminderMinutes and lateCutoffMinutes to Medication
  */
 @Database(
     entities = [Medication::class, DoseEvent::class, ScheduledAlarm::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -29,6 +32,13 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         private const val DATABASE_NAME = "dosetap_database"
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medications ADD COLUMN dailyReminderMinutes INTEGER")
+                db.execSQL("ALTER TABLE medications ADD COLUMN lateCutoffMinutes INTEGER")
+            }
+        }
 
         @Volatile
         private var instance: AppDatabase? = null
@@ -45,6 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DATABASE_NAME,
             )
+                .addMigrations(MIGRATION_1_2)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
                 .build()
         }

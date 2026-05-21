@@ -157,6 +157,10 @@ class AlarmScheduler(
 
         settingsRepository.setAlarmsActive(true)
         Log.i(TAG, "rescheduleAll: restored ${activeAlarms.size} alarms")
+
+        // Re-schedule daily reminders for medications that have them configured
+        val allMedications = medicationDao.getAll()
+        allMedications.filter { it.dailyReminderMinutes != null }.forEach { scheduleDailyReminder(it) }
     }
 
     /**
@@ -180,6 +184,51 @@ class AlarmScheduler(
         )
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
         Log.d(TAG, "Test alarm scheduled at $triggerAt")
+    }
+
+    /**
+     * Schedules a proactive daily reminder for [medication] at [Medication.dailyReminderMinutes]
+     * minutes from midnight. If that time has already passed today, schedules for tomorrow.
+     * Does nothing if [Medication.dailyReminderMinutes] is null.
+     */
+    fun scheduleDailyReminder(medication: Medication) {
+        val dailyMinutes = medication.dailyReminderMinutes ?: return
+
+        val trigger = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, dailyMinutes / 60)
+            set(java.util.Calendar.MINUTE, dailyMinutes % 60)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        if (trigger.timeInMillis <= System.currentTimeMillis()) {
+            trigger.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(Constants.EXTRA_MEDICATION_ID, medication.id)
+            putExtra(Constants.EXTRA_IS_DAILY_REMINDER, true)
+            putExtra(Constants.EXTRA_TAP_ID, -1L)
+            putExtra(Constants.EXTRA_FOLLOWUP_INDEX, 0)
+        }
+        val requestCode = Constants.DAILY_REMINDER_REQUEST_CODE_BASE + medication.id.toInt()
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.timeInMillis, pendingIntent)
+        Log.d(TAG, "Daily reminder scheduled for medication ${medication.id} at ${trigger.timeInMillis}")
+    }
+
+    /** Cancels the daily reminder for [medication]. Safe to call even if none was scheduled. */
+    fun cancelDailyReminder(medication: Medication) {
+        val requestCode = Constants.DAILY_REMINDER_REQUEST_CODE_BASE + medication.id.toInt()
+        val intent = Intent(context, AlarmReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
+        ) ?: return
+        alarmManager.cancel(pendingIntent)
+        Log.d(TAG, "Daily reminder cancelled for medication ${medication.id}")
     }
 
     // ===== Private helpers =====

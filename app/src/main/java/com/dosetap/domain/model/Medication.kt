@@ -25,6 +25,10 @@ data class Medication(
     val followUps: List<Int>,
     /** URI string for a custom alarm sound, null = default alarm sound. */
     val soundUri: String? = null,
+    /** Minutes from midnight for the proactive daily reminder, null = disabled. e.g. 540 = 09:00. */
+    val dailyReminderMinutes: Int? = null,
+    /** Minutes from midnight after which it's too late to take this medication (insomnia risk). null = no cutoff. */
+    val lateCutoffMinutes: Int? = null,
     /** Unix epoch millis when this medication was created. */
     val createdAt: Long = System.currentTimeMillis(),
 )

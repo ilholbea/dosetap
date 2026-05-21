@@ -1,7 +1,11 @@
 package com.dosetap.ui.settings
 
+import android.app.Activity
 import android.content.Intent
+import android.media.RingtoneManager
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Battery0Bar
 import androidx.compose.material.icons.filled.BatteryFull
@@ -24,7 +29,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -42,10 +49,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +73,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dosetap.BuildConfig
@@ -88,17 +100,37 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     )
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // Share export data when available
-    LaunchedEffect(uiState.exportData) {
-        if (uiState.exportData != null) {
-            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/json"
-                putExtra(Intent.EXTRA_TEXT, uiState.exportData)
-                putExtra(Intent.EXTRA_SUBJECT, "DoseTap Data Export")
-            }
-            context.startActivity(Intent.createChooser(sendIntent, "Share DoseTap Data"))
-            viewModel.clearExportData()
+    // File picker for import
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) viewModel.importFromUri(uri)
+    }
+
+    // Share export file when ready
+    LaunchedEffect(uiState.exportFileUri) {
+        val uri = uiState.exportFileUri ?: return@LaunchedEffect
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "DoseTap Backup")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(sendIntent, "Share DoseTap Backup"))
+        viewModel.clearExportUri()
+    }
+
+    // Import result snackbar
+    LaunchedEffect(uiState.importResult, uiState.importError) {
+        uiState.importResult?.let {
+            snackbarHostState.showSnackbar("Imported ${it.medicationsCount} medication(s) and ${it.eventsCount} dose event(s)")
+            viewModel.clearImportResult()
+        }
+        uiState.importError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearImportResult()
         }
     }
 
@@ -127,6 +159,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -199,6 +232,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                 SectionHeader(stringResource(R.string.settings_data_section))
                 DataSection(
                     onExport = { viewModel.exportData() },
+                    onImport = { importLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*")) },
                     onDelete = { viewModel.showDeleteConfirm() },
                 )
             }
@@ -229,10 +263,47 @@ private fun MedicationSection(
     medication: Medication?,
     onSave: (Medication) -> Unit,
 ) {
+    val context = LocalContext.current
     var editing by remember { mutableStateOf(false) }
     var name by remember(medication) { mutableStateOf(medication?.name ?: "") }
     val followUps = remember(medication) {
         mutableStateListOf(*(medication?.followUps ?: Constants.DEFAULT_FOLLOWUPS).toTypedArray())
+    }
+    var soundUri by remember(medication) { mutableStateOf(medication?.soundUri) }
+    var dailyReminderMinutes by remember(medication) { mutableStateOf(medication?.dailyReminderMinutes) }
+    var lateCutoffMinutes by remember(medication) { mutableStateOf(medication?.lateCutoffMinutes) }
+    var showDailyTimePicker by remember { mutableStateOf(false) }
+    var showCutoffTimePicker by remember { mutableStateOf(false) }
+
+    // Alarm tone picker
+    val ringtoneLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            @Suppress("DEPRECATION")
+            val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            soundUri = uri?.toString()
+        }
+    }
+
+    fun soundDisplayName(): String {
+        if (soundUri == null) return "Default alarm"
+        return try {
+            RingtoneManager.getRingtone(context, Uri.parse(soundUri))?.getTitle(context) ?: "Custom"
+        } catch (e: Exception) { "Custom" }
+    }
+
+    fun minutesToDisplay(minutes: Int?): String {
+        if (minutes == null) return "Off"
+        val h = minutes / 60
+        val m = minutes % 60
+        val amPm = if (h < 12) "AM" else "PM"
+        val h12 = when {
+            h == 0 -> 12
+            h > 12 -> h - 12
+            else -> h
+        }
+        return "%d:%02d %s".format(h12, m, amPm)
     }
 
     Card {
@@ -312,11 +383,71 @@ private fun MedicationSection(
                 }
 
                 if (followUps.size < Constants.MAX_FOLLOWUP_COUNT) {
-                    TextButton(
-                        onClick = { followUps.add(60) },
-                    ) {
+                    TextButton(onClick = { followUps.add(60) }) {
                         Icon(Icons.Filled.Add, contentDescription = null)
                         Text(stringResource(R.string.onboarding_medication_add_followup))
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                // Alarm tone row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.MusicNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("Alarm tone", style = MaterialTheme.typography.bodySmall)
+                        Text(soundDisplayName(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = {
+                        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                            soundUri?.let { putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(it)) }
+                        }
+                        ringtoneLauncher.launch(intent)
+                    }) { Text("Change") }
+                }
+
+                // Daily reminder row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Notifications, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("Daily reminder", style = MaterialTheme.typography.bodySmall)
+                        Text(minutesToDisplay(dailyReminderMinutes), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = { showDailyTimePicker = true }) {
+                        Text(if (dailyReminderMinutes == null) "Set" else "Edit")
+                    }
+                    if (dailyReminderMinutes != null) {
+                        TextButton(onClick = { dailyReminderMinutes = null }) { Text("Off") }
+                    }
+                }
+
+                // Late cutoff row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("\"Too late\" cutoff", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (lateCutoffMinutes == null) "Off" else "After ${minutesToDisplay(lateCutoffMinutes)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { showCutoffTimePicker = true }) {
+                        Text(if (lateCutoffMinutes == null) "Set" else "Edit")
+                    }
+                    if (lateCutoffMinutes != null) {
+                        TextButton(onClick = { lateCutoffMinutes = null }) { Text("Off") }
                     }
                 }
 
@@ -335,6 +466,9 @@ private fun MedicationSection(
                                     (medication ?: Medication(name = "", followUps = emptyList())).copy(
                                         name = name.trim(),
                                         followUps = followUps.toList(),
+                                        soundUri = soundUri,
+                                        dailyReminderMinutes = dailyReminderMinutes,
+                                        lateCutoffMinutes = lateCutoffMinutes,
                                     )
                                 )
                                 editing = false
@@ -344,6 +478,28 @@ private fun MedicationSection(
                     ) {
                         Text(stringResource(R.string.settings_save))
                     }
+                }
+
+                // Daily reminder time picker dialog
+                if (showDailyTimePicker) {
+                    val initMinutes = dailyReminderMinutes ?: 9 * 60
+                    TimePickerDialog(
+                        initialHour = initMinutes / 60,
+                        initialMinute = initMinutes % 60,
+                        onConfirm = { h, m -> dailyReminderMinutes = h * 60 + m; showDailyTimePicker = false },
+                        onDismiss = { showDailyTimePicker = false },
+                    )
+                }
+
+                // Cutoff time picker dialog
+                if (showCutoffTimePicker) {
+                    val initMinutes = lateCutoffMinutes ?: 16 * 60
+                    TimePickerDialog(
+                        initialHour = initMinutes / 60,
+                        initialMinute = initMinutes % 60,
+                        onConfirm = { h, m -> lateCutoffMinutes = h * 60 + m; showCutoffTimePicker = false },
+                        onDismiss = { showCutoffTimePicker = false },
+                    )
                 }
             }
         }
@@ -462,25 +618,50 @@ private fun ReliabilitySection(
 @Composable
 private fun DataSection(
     onExport: () -> Unit,
+    onImport: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
-            onClick = onExport,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.Download, contentDescription = null)
-            Text(stringResource(R.string.settings_export_data), modifier = Modifier.padding(start = 8.dp))
+            Text("Export backup (JSON)", modifier = Modifier.padding(start = 8.dp))
+        }
+        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Upload, contentDescription = null)
+            Text("Import backup", modifier = Modifier.padding(start = 8.dp))
         }
         OutlinedButton(
             onClick = onDelete,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.error,
-            ),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
         ) {
             Icon(Icons.Filled.Delete, contentDescription = null)
             Text(stringResource(R.string.settings_delete_data), modifier = Modifier.padding(start = 8.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onConfirm: (hour: Int, minute: Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val state = rememberTimePickerState(initialHour = initialHour, initialMinute = initialMinute)
+    Dialog(onDismissRequest = onDismiss) {
+        Card {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                TimePicker(state = state)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    TextButton(onClick = { onConfirm(state.hour, state.minute) }) { Text("OK") }
+                }
+            }
         }
     }
 }

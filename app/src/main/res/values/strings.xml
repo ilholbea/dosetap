@@ -162,6 +162,23 @@
     <string name="error_medication_name_empty">Please enter a medication name.</string>
     <string name="error_unknown">An unexpected error occurred.</string>
 
+    <!-- Stats -->
+    <string name="stats_title">Adherence Stats</string>
+    <string name="stats_streak_current">Current streak</string>
+    <string name="stats_streak_best">Best</string>
+    <string name="stats_adherence_7day">7-day</string>
+    <string name="stats_adherence_30day">30-day</string>
+    <string name="stats_chart_title">Last 14 days</string>
+    <string name="stats_total_doses">Total doses logged</string>
+    <string name="stats_empty">Start logging doses to see your adherence stats here.</string>
+
+    <!-- Settings new -->
+    <string name="settings_import_data">Import backup</string>
+    <string name="settings_alarm_tone">Alarm tone</string>
+    <string name="settings_daily_reminder">Daily reminder</string>
+    <string name="settings_late_cutoff">\"Too late\" cutoff</string>
+    <string name="settings_daily_reminder_off">Off</string>
+
     <!-- Accessibility -->
     <string name="cd_settings_button">Open settings</string>
     <string name="cd_history_button">View history</string>

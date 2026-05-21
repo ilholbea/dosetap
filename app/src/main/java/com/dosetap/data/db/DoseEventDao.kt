@@ -101,4 +101,7 @@ interface DoseEventDao {
 
     @Query("SELECT * FROM dose_events ORDER BY actionedAt DESC")
     suspend fun getAll(): List<DoseEvent>
+
+    @Query("SELECT * FROM dose_events WHERE medicationId = :medicationId AND actionedAt >= :fromMillis ORDER BY actionedAt ASC")
+    suspend fun getForMedicationSince(medicationId: Long, fromMillis: Long): List<DoseEvent>
 }
