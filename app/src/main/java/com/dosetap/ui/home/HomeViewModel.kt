@@ -79,50 +79,61 @@ class HomeViewModel(
         wasActive && !dismissed && activeCount == 0
     }
 
-    val uiState: StateFlow<HomeUiState> = combine(
-        combine(
-            container.medicationDao.observeFirst(),
-            container.doseEventDao.observeToday(TimeFormatter.startOfDay(System.currentTimeMillis())),
-            alarmMissingFlow,
-            container.settingsRepository.lastTimezoneChangeMillis,
-        ) { medication, events, alarmMissing, lastTzChange ->
-            val notificationsGranted = checkNotificationsGranted()
-            val tzChangedRecently = lastTzChange > 0L &&
-                (System.currentTimeMillis() - lastTzChange) < 24 * 60 * 60 * 1000L
+    // Inner combine: medication + events + alarm state → base HomeUiState
+    private val baseStateFlow = combine(
+        container.medicationDao.observeFirst(),
+        container.doseEventDao.observeToday(TimeFormatter.startOfDay(System.currentTimeMillis())),
+        alarmMissingFlow,
+        container.settingsRepository.lastTimezoneChangeMillis,
+    ) { medication, events, alarmMissing, lastTzChange ->
+        val notificationsGranted = checkNotificationsGranted()
+        val tzChangedRecently = lastTzChange > 0L &&
+            (System.currentTimeMillis() - lastTzChange) < 24 * 60 * 60 * 1000L
+        val effectWindowUntil = computeEffectWindow(medication, events)
+        val isOffDay = isOffDay(medication)
+        val pillsRemaining = medication?.pillCount
+        val showRefillWarning = pillsRemaining != null && pillsRemaining <= (medication?.refillAlertAt ?: 7)
+        HomeUiState(
+            medication = medication,
+            todayEvents = events,
+            showNotificationBanner = !notificationsGranted,
+            showAlarmMissingBanner = alarmMissing,
+            showReliabilityBanner = OemDetector.isKnownProblematic(),
+            showTimezoneChangedBanner = tzChangedRecently,
+            isLoading = false,
+            effectWindowUntilMillis = effectWindowUntil,
+            isOffDay = isOffDay,
+            pillsRemaining = pillsRemaining,
+            showRefillWarning = showRefillWarning,
+        )
+    }
 
-            val effectWindowUntil = computeEffectWindow(medication, events)
-            val isOffDay = isOffDay(medication)
-            val pillsRemaining = medication?.pillCount
-            val showRefillWarning = pillsRemaining != null && pillsRemaining <= (medication?.refillAlertAt ?: 7)
-
-            HomeUiState(
-                medication = medication,
-                todayEvents = events,
-                showNotificationBanner = !notificationsGranted,
-                showAlarmMissingBanner = alarmMissing,
-                showReliabilityBanner = OemDetector.isKnownProblematic(),
-                showTimezoneChangedBanner = tzChangedRecently,
-                isLoading = false,
-                effectWindowUntilMillis = effectWindowUntil,
-                isOffDay = isOffDay,
-                pillsRemaining = pillsRemaining,
-                showRefillWarning = showRefillWarning,
-            )
-        },
+    // Middle combine: add undo/tap/error transient state (max 5 flows)
+    private val midStateFlow = combine(
+        baseStateFlow,
         _showUndoBanner,
         _lastTapId,
         _lastDoseTimeMillis,
         _errorMessage,
-        _pendingWarning,
-    ) { state, showUndo, tapId, doseTime, error, warning ->
+    ) { state, showUndo, tapId, doseTime, error ->
         state.copy(
             showUndoBanner = showUndo,
             lastTapId = tapId,
             lastDoseTimeMillis = doseTime,
             errorMessage = error,
+        )
+    }
+
+    val uiState: StateFlow<HomeUiState> = combine(
+        midStateFlow,
+        _pendingWarning,
+        _pendingMedicationId,
+        _pendingTapTimeMillis,
+    ) { state, warning, pendingMedId, pendingTapTime ->
+        state.copy(
             pendingWarning = warning,
-            pendingMedicationId = _pendingMedicationId.value,
-            pendingTapTimeMillis = _pendingTapTimeMillis.value,
+            pendingMedicationId = pendingMedId,
+            pendingTapTimeMillis = pendingTapTime,
         )
     }.stateIn(
         scope = viewModelScope,

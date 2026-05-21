@@ -280,10 +280,11 @@ fun HomeScreen(
             }
 
             // Pill count / refill warning card
-            if (uiState.showRefillWarning && uiState.pillsRemaining != null) {
+            val pillsRemaining = uiState.pillsRemaining
+            if (uiState.showRefillWarning && pillsRemaining != null) {
                 item {
                     RefillWarningCard(
-                        pillsRemaining = uiState.pillsRemaining,
+                        pillsRemaining = pillsRemaining,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }

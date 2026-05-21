@@ -542,8 +542,8 @@ private fun MedicationSection(
                 OutlinedTextField(
                     value = durationText,
                     onValueChange = { v ->
-                        durationText = v.filter { it.isDigit() }.take(3)
-                        durationMinutes = durationText.toIntOrNull()?.let { it * 60 }.takeIf { durationText.isNotEmpty() }
+                        durationText = v.filter { it.isDigit() }.take(4)
+                        durationMinutes = if (durationText.isEmpty()) null else durationText.toIntOrNull()
                     },
                     label = { Text("Duration (minutes)", style = MaterialTheme.typography.labelSmall) },
                     modifier = Modifier.fillMaxWidth(),
