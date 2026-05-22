@@ -42,4 +42,14 @@ data class Medication(
     val durationMinutes: Int? = null,
     /** Unix epoch millis when this medication was created. */
     val createdAt: Long = System.currentTimeMillis(),
+    // ===== Prescription refill tracking (Pro) =====
+    /** Date of the most recent prescription fill (UTC millis). null = not tracking. */
+    val prescriptionDate: Long? = null,
+    /** Days of supply on the prescription (e.g. 30). null = not tracking. */
+    val daysSupply: Int? = null,
+    /** Days before runout to send "book appointment" reminder. Defaults to 7. */
+    val refillBufferDays: Int = 7,
+    // ===== Morning anchor (onboarding) =====
+    /** User's chosen anchor cue, e.g. "☕ coffee". Shown in persistent notification. */
+    val morningAnchor: String? = null,
 )

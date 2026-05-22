@@ -128,4 +128,38 @@ object TimeFormatter {
     fun formatFollowUpTimes(context: Context, triggerMillis: List<Long>): String {
         return triggerMillis.joinToString(", ") { formatTime(context, it) }
     }
+
+    /**
+     * Formats elapsed millis as a compact string without "ago" suffix.
+     * Examples: "3h 20m", "45m", "2h"
+     * Used in notification text and hero section.
+     */
+    fun formatElapsedShort(elapsedMillis: Long): String {
+        val totalMinutes = TimeUnit.MILLISECONDS.toMinutes(elapsedMillis).coerceAtLeast(0)
+        return when {
+            totalMinutes < 1L -> "<1m"
+            totalMinutes < 60L -> "${totalMinutes}m"
+            else -> {
+                val hours = totalMinutes / 60
+                val minutes = totalMinutes % 60
+                if (minutes == 0L) "${hours}h" else "${hours}h ${minutes}m"
+            }
+        }
+    }
+
+    /**
+     * Formats a countdown in millis as "in 40 min" or "in 1h 20m".
+     */
+    fun formatCountdown(remainingMillis: Long): String {
+        val totalMinutes = TimeUnit.MILLISECONDS.toMinutes(remainingMillis).coerceAtLeast(0)
+        return when {
+            totalMinutes < 1L -> "< 1 min"
+            totalMinutes < 60L -> "in ${totalMinutes}m"
+            else -> {
+                val hours = totalMinutes / 60
+                val minutes = totalMinutes % 60
+                if (minutes == 0L) "in ${hours}h" else "in ${hours}h ${minutes}m"
+            }
+        }
+    }
 }

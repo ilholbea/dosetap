@@ -197,6 +197,9 @@ class AlarmReceiver : BroadcastReceiver() {
         notificationManager.notify(notificationId, notification)
 
         container.refreshWidgets()
+        // Update ambient notification to show no-dose-yet state after alarm fires
+        val lastDose = container.doseEventDao.getLastConfirmedDose(medicationId)
+        container.ambientNotificationManager.update(medication, lastDose)
         Log.d(TAG, "Notification posted: id=$notificationId for medication=${medication.name}")
     }
 

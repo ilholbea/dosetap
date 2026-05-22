@@ -25,6 +25,7 @@ import com.dosetap.domain.usecase.LogDoseUseCase
 import com.dosetap.domain.usecase.ScheduleFollowUpsUseCase
 import com.dosetap.billing.BillingManager
 import com.dosetap.billing.GiftCodeManager
+import com.dosetap.notification.AmbientNotificationManager
 import com.dosetap.util.BackupManager
 
 /**
@@ -89,6 +90,9 @@ class AppContainer(context: Context) {
     // ===== Billing =====
     val billingManager: BillingManager by lazy { BillingManager(appContext) }
     val giftCodeManager: GiftCodeManager by lazy { GiftCodeManager(appContext) }
+    val sponsorCodeManager: com.dosetap.billing.SponsorCodeManager by lazy {
+        com.dosetap.billing.SponsorCodeManager(appContext)
+    }
 
     private val containerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -97,6 +101,10 @@ class AppContainer(context: Context) {
         combine(billingManager.isPro, settingsRepository.giftCodeUnlocked) { billing, gift ->
             billing || gift
         }.stateIn(containerScope, SharingStarted.Eagerly, false)
+    }
+
+    val ambientNotificationManager: AmbientNotificationManager by lazy {
+        AmbientNotificationManager(appContext)
     }
 
     val backupManager: BackupManager by lazy {

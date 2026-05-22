@@ -120,13 +120,12 @@ fun PaywallBottomSheet(
             // Feature list
             val features = listOf(
                 Triple(Icons.Filled.Schedule, "Up to 4 follow-up reminders", "Free includes 2"),
-                Triple(Icons.Filled.CalendarMonth, "Off-days", "Skip reminders on weekends or chosen days"),
-                Triple(Icons.Filled.Notifications, "Daily proactive reminder", "\"You haven't logged yet\" nudge"),
-                Triple(Icons.Filled.AccessTime, "Effect window tracker", "See exactly when your dose wears off"),
-                Triple(Icons.Filled.LocalPharmacy, "Pill count & refill alerts", "Know before you run out"),
-                Triple(Icons.Filled.BarChart, "Full adherence chart", "14-day visual + weekly summary"),
+                Triple(Icons.Filled.BarChart, "90-day adherence heatmap", "The picture you show your psychiatrist"),
+                Triple(Icons.Filled.CalendarMonth, "Doctor visit report", "One-tap PDF for your psychiatrist appointment"),
+                Triple(Icons.Filled.Notifications, "Smart escalation reminders", "+10 and +25 min nudges if you don't log"),
+                Triple(Icons.Filled.LocalPharmacy, "Prescription refill prediction", "Auto-calculates when to book your psych appointment"),
                 Triple(Icons.Filled.MusicNote, "Custom alarm tone", "Use any sound on your phone"),
-                Triple(Icons.Filled.FileUpload, "Export & import backup", "Switch phones without losing history"),
+                Triple(Icons.Filled.Star, "Sponsor a friend", "Give Pro to one person you choose"),
             )
 
             Column(

@@ -99,6 +99,9 @@ interface DoseEventDao {
     @Query("DELETE FROM dose_events")
     suspend fun deleteAll()
 
+    @Query("UPDATE dose_events SET note = :note, tags = :tags WHERE id = :id")
+    suspend fun updateNote(id: Long, note: String?, tags: String?)
+
     @Query("SELECT * FROM dose_events ORDER BY actionedAt DESC")
     suspend fun getAll(): List<DoseEvent>
 

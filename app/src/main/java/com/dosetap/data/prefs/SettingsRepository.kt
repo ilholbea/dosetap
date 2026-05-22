@@ -6,9 +6,11 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "dosetap_settings")
@@ -107,13 +109,52 @@ class SettingsRepository(private val context: Context) {
 
     // ===== Pro unlock (gift code path) =====
 
-    /** True if user unlocked Pro via a gift code on this device. */
     val giftCodeUnlocked: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[Keys.GIFT_CODE_UNLOCKED] ?: false
     }
 
     suspend fun setGiftCodeUnlocked(unlocked: Boolean) {
         dataStore.edit { it[Keys.GIFT_CODE_UNLOCKED] = unlocked }
+    }
+
+    // ===== Sponsor-a-friend =====
+
+    /** Number of sponsor gift slots used on this device (Pro users get 1). */
+    val sponsorSlotsUsed: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[Keys.SPONSOR_SLOTS_USED] ?: 0
+    }
+
+    suspend fun incrementSponsorSlots() {
+        dataStore.edit { it[Keys.SPONSOR_SLOTS_USED] = (it[Keys.SPONSOR_SLOTS_USED] ?: 0) + 1 }
+    }
+
+    // ===== Multi-medication home switcher =====
+
+    val selectedMedicationId: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[Keys.SELECTED_MEDICATION_ID] ?: -1L
+    }
+
+    suspend fun setSelectedMedicationId(id: Long) {
+        dataStore.edit { it[Keys.SELECTED_MEDICATION_ID] = id }
+    }
+
+    // ===== Skip tomorrow =====
+
+    /** UTC start-of-day millis for the day to skip. -1 means no skip pending. */
+    val skipTomorrowDate: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[Keys.SKIP_TOMORROW_DATE] ?: -1L
+    }
+
+    suspend fun setSkipTomorrow(dayStartMillis: Long) {
+        dataStore.edit { it[Keys.SKIP_TOMORROW_DATE] = dayStartMillis }
+    }
+
+    suspend fun clearSkipTomorrow() {
+        dataStore.edit { it[Keys.SKIP_TOMORROW_DATE] = -1L }
+    }
+
+    suspend fun getSkipTomorrowDate(): Long {
+        return dataStore.data.map { it[Keys.SKIP_TOMORROW_DATE] ?: -1L }.first()
     }
 
     // ===== Clear all =====
@@ -150,5 +191,8 @@ class SettingsRepository(private val context: Context) {
         val ALARMS_WERE_ACTIVE = booleanPreferencesKey("alarms_were_active")
         val ALARM_BANNER_DISMISSED = booleanPreferencesKey("alarm_banner_dismissed")
         val GIFT_CODE_UNLOCKED = booleanPreferencesKey("gift_code_unlocked")
+        val SPONSOR_SLOTS_USED = intPreferencesKey("sponsor_slots_used")
+        val SELECTED_MEDICATION_ID = longPreferencesKey("selected_medication_id")
+        val SKIP_TOMORROW_DATE = longPreferencesKey("skip_tomorrow_date")
     }
 }

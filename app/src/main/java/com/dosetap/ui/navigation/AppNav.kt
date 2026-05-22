@@ -13,6 +13,7 @@ import com.dosetap.DoseTapApp
 import com.dosetap.ui.history.HistoryScreen
 import com.dosetap.ui.home.HomeScreen
 import com.dosetap.ui.onboarding.OnboardingScreen
+import com.dosetap.ui.report.DoctorReportScreen
 import com.dosetap.ui.settings.SettingsScreen
 import com.dosetap.ui.stats.StatsScreen
 
@@ -23,6 +24,7 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
     data object History : Screen("history")
     data object Stats : Screen("stats")
+    data object DoctorReport : Screen("doctor_report")
 }
 
 @Composable
@@ -57,6 +59,7 @@ fun AppNav(navController: NavHostController = rememberNavController()) {
         composable(Screen.Settings.route) {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
+                onNavigateToReport = { navController.navigate(Screen.DoctorReport.route) },
             )
         }
 
@@ -68,6 +71,12 @@ fun AppNav(navController: NavHostController = rememberNavController()) {
 
         composable(Screen.Stats.route) {
             StatsScreen(
+                onNavigateBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Screen.DoctorReport.route) {
+            DoctorReportScreen(
                 onNavigateBack = { navController.popBackStack() },
             )
         }

@@ -76,6 +76,9 @@ class LogDoseUseCase(
             medicationDao.update(medication.copy(pillCount = medication.pillCount - 1))
         }
 
+        // Schedule wear-off warning (free, safety-adjacent)
+        alarmScheduler.scheduleWearOffWarning(tapEventId, medication, tapTimeMillis)
+
         Log.i(TAG, "Dose logged: tapId=$tapEventId medicationId=$medicationId at $tapTimeMillis")
         return tapEventId
     }

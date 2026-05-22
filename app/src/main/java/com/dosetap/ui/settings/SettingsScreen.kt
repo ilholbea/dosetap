@@ -1,6 +1,9 @@
 package com.dosetap.ui.settings
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +34,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Battery0Bar
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -70,6 +76,7 @@ import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -100,7 +107,10 @@ import com.dosetap.util.TimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onNavigateBack: () -> Unit) {
+fun SettingsScreen(
+    onNavigateBack: () -> Unit,
+    onNavigateToReport: () -> Unit = {},
+) {
     val context = LocalContext.current
     val container = (context.applicationContext as DoseTapApp).container
 
@@ -307,6 +317,28 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                 )
             }
 
+            // Sponsor-a-Friend section (Pro)
+            if (isPro) {
+                item {
+                    SectionHeader("Sponsor a Friend")
+                    SponsorSection(container = container)
+                }
+            }
+
+            // Doctor Report (Pro)
+            if (isPro) {
+                item {
+                    SectionHeader("Reports")
+                    OutlinedButton(
+                        onClick = onNavigateToReport,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.CalendarMonth, contentDescription = null)
+                        Text("Doctor Visit Report (PDF)", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+
             // About section
             item {
                 SectionHeader(stringResource(R.string.settings_about_section))
@@ -354,9 +386,14 @@ private fun MedicationSection(
     var durationMinutes by remember(medication) { mutableStateOf(medication?.durationMinutes) }
     var durationText by remember(medication) { mutableStateOf(medication?.durationMinutes?.toString() ?: "") }
     var pillCountText by remember(medication) { mutableStateOf(medication?.pillCount?.toString() ?: "") }
+    var prescriptionDate by remember(medication) { mutableLongStateOf(medication?.prescriptionDate ?: 0L) }
+    var daysSupply by remember(medication) { mutableStateOf(medication?.daysSupply) }
+    var daysSupplyText by remember(medication) { mutableStateOf(medication?.daysSupply?.toString() ?: "") }
+    var refillBufferDays by remember(medication) { mutableIntStateOf(medication?.refillBufferDays ?: 7) }
     var showDailyTimePicker by remember { mutableStateOf(false) }
     var showCutoffTimePicker by remember { mutableStateOf(false) }
     var showSetPillCountDialog by remember { mutableStateOf(false) }
+    var showPrescriptionDatePicker by remember { mutableStateOf(false) }
 
     // Alarm tone picker
     val ringtoneLauncher = rememberLauncherForActivityResult(
@@ -692,6 +729,128 @@ private fun MedicationSection(
                     )
                 }
 
+                // Prescription refill prediction (Pro)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                ProFeatureRow(
+                    icon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = "Prescription refill prediction",
+                    sublabel = if (prescriptionDate > 0L && daysSupply != null) {
+                        val runOutMillis = prescriptionDate + daysSupply!! * 24L * 60 * 60 * 1000
+                        "Runs out ${java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date(runOutMillis))}"
+                    } else "Not configured",
+                    isPro = isPro,
+                    onShowPaywall = onShowPaywall,
+                ) {}
+                if (isPro) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = if (prescriptionDate > 0L)
+                                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(prescriptionDate))
+                            else "",
+                            onValueChange = {},
+                            label = { Text("Fill date", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f),
+                            readOnly = true,
+                            singleLine = true,
+                            trailingIcon = {
+                                TextButton(onClick = { showPrescriptionDatePicker = true }) { Text("Set") }
+                            },
+                        )
+                        OutlinedTextField(
+                            value = daysSupplyText,
+                            onValueChange = { v ->
+                                daysSupplyText = v.filter { it.isDigit() }.take(3)
+                                daysSupply = daysSupplyText.toIntOrNull()
+                            },
+                            label = { Text("Days supply", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                            ),
+                        )
+                    }
+                    if (prescriptionDate > 0L && daysSupply != null) {
+                        val runOutMillis = prescriptionDate + daysSupply!! * 24L * 60 * 60 * 1000
+                        val daysLeft = ((runOutMillis - System.currentTimeMillis()) / (24L * 60 * 60 * 1000)).toInt()
+                        val fmt = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (daysLeft <= refillBufferDays)
+                                    MaterialTheme.colorScheme.errorContainer
+                                else MaterialTheme.colorScheme.secondaryContainer,
+                            ),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        ) {
+                            Text(
+                                text = if (daysLeft <= 0) "Prescription has run out"
+                                else "~$daysLeft days remaining — runs out ${fmt.format(java.util.Date(runOutMillis))}",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (showPrescriptionDatePicker) {
+                    // Simple date dialog using the existing TimePickerDialog pattern
+                    // Using a basic AlertDialog with manual date fields to avoid adding a new dependency
+                    var yearText by remember { mutableStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString()) }
+                    var monthText by remember { mutableStateOf((java.util.Calendar.getInstance().get(java.util.Calendar.MONTH) + 1).toString()) }
+                    var dayText by remember { mutableStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_MONTH).toString()) }
+                    AlertDialog(
+                        onDismissRequest = { showPrescriptionDatePicker = false },
+                        title = { Text("Prescription fill date") },
+                        text = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = yearText,
+                                    onValueChange = { yearText = it.filter { c -> c.isDigit() }.take(4) },
+                                    label = { Text("Year") },
+                                    modifier = Modifier.weight(1.5f),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                )
+                                OutlinedTextField(
+                                    value = monthText,
+                                    onValueChange = { monthText = it.filter { c -> c.isDigit() }.take(2) },
+                                    label = { Text("Month") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                )
+                                OutlinedTextField(
+                                    value = dayText,
+                                    onValueChange = { dayText = it.filter { c -> c.isDigit() }.take(2) },
+                                    label = { Text("Day") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                val y = yearText.toIntOrNull() ?: return@Button
+                                val m = (monthText.toIntOrNull() ?: return@Button) - 1
+                                val d = dayText.toIntOrNull() ?: return@Button
+                                val cal = java.util.Calendar.getInstance().apply {
+                                    set(y, m, d, 0, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                                }
+                                prescriptionDate = cal.timeInMillis
+                                showPrescriptionDatePicker = false
+                            }) { Text("Set") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPrescriptionDatePicker = false }) { Text("Cancel") }
+                        }
+                    )
+                }
+
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(
@@ -714,6 +873,9 @@ private fun MedicationSection(
                                         refillAlertAt = refillAlertAt,
                                         offDays = offDays.toList(),
                                         durationMinutes = durationMinutes,
+                                        prescriptionDate = if (prescriptionDate > 0L) prescriptionDate else null,
+                                        daysSupply = daysSupply,
+                                        refillBufferDays = refillBufferDays,
                                     )
                                 )
                                 editing = false
@@ -973,6 +1135,80 @@ private fun ProFeatureRow(
             actions()
         } else {
             ProBadge(onClick = onShowPaywall)
+        }
+    }
+}
+
+@Composable
+private fun SponsorSection(container: com.dosetap.AppContainer) {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val slotsUsed by container.settingsRepository.sponsorSlotsUsed.collectAsStateWithLifecycle(0)
+    val slotAvailable = slotsUsed < com.dosetap.billing.SponsorCodeManager.MAX_SLOTS
+    val sponsorCode = remember { container.sponsorCodeManager.generateCode(slotsUsed) }
+    var copied by remember { mutableStateOf(false) }
+
+    Card {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.CardGiftcard, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "Give Pro to a friend",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            if (slotAvailable) {
+                Text(
+                    "Share this code with one friend — they enter it in DoseTap to unlock Pro for free.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            sponsorCode,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    FilledTonalButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("DoseTap sponsor code", sponsorCode))
+                        copied = true
+                        scope.launch {
+                            kotlinx.coroutines.delay(2000)
+                            copied = false
+                        }
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text(if (copied) "Copied!" else "Copy", modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "After sharing, this slot is used up. You get 1 gift per Pro device.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    "You've already gifted your Pro slot. Thank you for spreading the word!",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

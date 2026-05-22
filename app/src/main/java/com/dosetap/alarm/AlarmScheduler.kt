@@ -192,9 +192,10 @@ class AlarmScheduler(
     /**
      * Schedules a proactive daily reminder for [medication] at [Medication.dailyReminderMinutes]
      * minutes from midnight. If that time has already passed today, schedules for tomorrow.
+     * Respects off-days and the skip-tomorrow setting.
      * Does nothing if [Medication.dailyReminderMinutes] is null.
      */
-    fun scheduleDailyReminder(medication: Medication) {
+    suspend fun scheduleDailyReminder(medication: Medication) {
         val dailyMinutes = medication.dailyReminderMinutes ?: return
 
         val trigger = java.util.Calendar.getInstance().apply {
@@ -206,6 +207,21 @@ class AlarmScheduler(
         if (trigger.timeInMillis <= System.currentTimeMillis()) {
             trigger.add(java.util.Calendar.DAY_OF_YEAR, 1)
         }
+
+        // Skip if tomorrow is marked as a skip day
+        val skipDate = settingsRepository.getSkipTomorrowDate()
+        if (skipDate > 0L) {
+            val triggerDayStart = java.util.Calendar.getInstance().apply {
+                timeInMillis = trigger.timeInMillis
+                set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            if (triggerDayStart == skipDate) {
+                trigger.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                Log.d(TAG, "Daily reminder skipped tomorrow (skip day); advanced to day after")
+            }
+        }
+
         // Skip off-days: advance to the next non-off day
         if (medication.offDays.isNotEmpty()) {
             var attempts = 0
@@ -271,6 +287,31 @@ class AlarmScheduler(
         }
         alarmDao.cancelByMedicationId(medicationId)
         Log.d(TAG, "Cancelled all alarms for medicationId=$medicationId")
+    }
+
+    /**
+     * Schedules a comedown / wear-off warning for [tapId] on [medication].
+     * Fires 60 minutes before the effect window ends (if durationMinutes is set).
+     * Free tier feature — always schedules.
+     */
+    fun scheduleWearOffWarning(tapId: Long, medication: Medication, doseTimeMillis: Long) {
+        val duration = medication.durationMinutes ?: return
+        val wearOffAt = doseTimeMillis + duration * 60_000L
+        val warningAt = wearOffAt - 60 * 60_000L // 60 min before
+
+        if (warningAt <= System.currentTimeMillis()) return // already in the past
+
+        val intent = Intent(context, WearOffWarningReceiver::class.java).apply {
+            putExtra(Constants.EXTRA_MEDICATION_ID, medication.id)
+            putExtra("wear_off_at_millis", wearOffAt)
+        }
+        val requestCode = (Constants.WEAROFF_WARNING_REQUEST_CODE_BASE + tapId.toInt()).and(0x7FFFFFFF)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, warningAt, pendingIntent)
+        Log.d(TAG, "Wear-off warning scheduled for medication ${medication.id} at $warningAt")
     }
 
     /** Cancels the daily reminder for [medication]. Safe to call even if none was scheduled. */

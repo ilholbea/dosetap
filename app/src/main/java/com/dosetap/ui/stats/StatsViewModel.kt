@@ -29,6 +29,7 @@ data class StatsUiState(
     val adherence30Days: Float = 0f,
     val totalDoses: Int = 0,
     val last14Days: List<DayStats> = emptyList(),
+    val last90Days: List<DayStats> = emptyList(),
     val hasAnyData: Boolean = false,
 )
 
@@ -105,13 +106,13 @@ class StatsViewModel(private val container: AppContainer) : ViewModel() {
         // Total confirmed doses
         val totalDoses = allEvents.count { it.action in confirmedActions }
 
-        // Last 14 days stats
         val dayLabels = listOf("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")
-        val last14Days = (13 downTo 0).map { daysAgo ->
+
+        fun buildDayStats(daysAgo: Int): DayStats {
             val dayStart = TimeFormatter.startOfDayDaysAgo(daysAgo)
             val dayEvents = eventsByDay[dayStart] ?: emptyList()
             val cal = Calendar.getInstance().apply { timeInMillis = dayStart }
-            DayStats(
+            return DayStats(
                 label = dayLabels[cal.get(Calendar.DAY_OF_WEEK) - 1],
                 dateMillis = dayStart,
                 takenCount = dayEvents.count { it.action in confirmedActions },
@@ -119,6 +120,9 @@ class StatsViewModel(private val container: AppContainer) : ViewModel() {
                 missedCount = dayEvents.count { it.action == DoseAction.MISSED },
             )
         }
+
+        val last14Days = (13 downTo 0).map { buildDayStats(it) }
+        val last90Days = (89 downTo 0).map { buildDayStats(it) }
 
         return StatsUiState(
             isLoading = false,
@@ -129,6 +133,7 @@ class StatsViewModel(private val container: AppContainer) : ViewModel() {
             adherence30Days = adherence(30),
             totalDoses = totalDoses,
             last14Days = last14Days,
+            last90Days = last90Days,
             hasAnyData = true,
         )
     }

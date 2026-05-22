@@ -14,10 +14,14 @@ import com.dosetap.domain.model.Medication
 import com.dosetap.util.Constants
 import com.dosetap.util.OemDetector
 import com.dosetap.util.TimeFormatter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -25,9 +29,9 @@ import java.util.Calendar
 private const val TAG = "HomeViewModel"
 
 enum class DoseWarningType {
-    DOUBLE_DOSE,   // another dose was logged recently (within effect window)
-    LATE_DOSE,     // past the "too late" cutoff for this medication
-    OFF_DAY,       // today is a configured off-day
+    DOUBLE_DOSE,
+    LATE_DOSE,
+    OFF_DAY,
 }
 
 data class DoseWarning(
@@ -37,6 +41,7 @@ data class DoseWarning(
 
 data class HomeUiState(
     val medication: Medication? = null,
+    val medications: List<Medication> = emptyList(),
     val todayEvents: List<DoseEvent> = emptyList(),
     val showNotificationBanner: Boolean = false,
     val showAlarmMissingBanner: Boolean = false,
@@ -45,17 +50,24 @@ data class HomeUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
     val lastTapId: Long? = null,
-    val lastDoseTimeMillis: Long? = null,
+    val lastTapTimeMillis: Long? = null,
     val showUndoBanner: Boolean = false,
     // ADHD warnings
     val pendingWarning: DoseWarning? = null,
     val pendingMedicationId: Long? = null,
     val pendingTapTimeMillis: Long? = null,
     // Status indicators
-    val effectWindowUntilMillis: Long? = null,  // null = no active effect window
+    val effectWindowUntilMillis: Long? = null,
     val isOffDay: Boolean = false,
     val pillsRemaining: Int? = null,
     val showRefillWarning: Boolean = false,
+    // Elapsed time display (updated by ticker)
+    val elapsedSinceLastDoseMillis: Long? = null,
+    val nextDoseAvailableAtMillis: Long? = null,
+    // Dose notes
+    val pendingNoteForTapId: Long? = null,
+    // Skip tomorrow badge
+    val tomorrowSkipped: Boolean = false,
 )
 
 class HomeViewModel(
@@ -65,11 +77,20 @@ class HomeViewModel(
 
     private val _showUndoBanner = MutableStateFlow(false)
     private val _lastTapId = MutableStateFlow<Long?>(null)
-    private val _lastDoseTimeMillis = MutableStateFlow<Long?>(null)
+    private val _lastTapTimeMillis = MutableStateFlow<Long?>(null)
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val _pendingWarning = MutableStateFlow<DoseWarning?>(null)
     private val _pendingMedicationId = MutableStateFlow<Long?>(null)
     private val _pendingTapTimeMillis = MutableStateFlow<Long?>(null)
+    private val _pendingNoteForTapId = MutableStateFlow<Long?>(null)
+
+    // 1-second ticker for elapsed time updates
+    private val tickerFlow = flow {
+        while (true) {
+            emit(System.currentTimeMillis())
+            delay(60_000L) // update every minute
+        }
+    }
 
     private val alarmMissingFlow = combine(
         container.settingsRepository.alarmsWereActive,
@@ -79,69 +100,124 @@ class HomeViewModel(
         wasActive && !dismissed && activeCount == 0
     }
 
-    // Inner combine: medication + events + alarm state → base HomeUiState
+    // Selected medication: first try DataStore selection, fall back to first
+    private val selectedMedFlow = combine(
+        container.settingsRepository.selectedMedicationId,
+        container.medicationDao.observeAll(),
+    ) { selectedId, allMeds ->
+        if (selectedId != -1L) allMeds.find { it.id == selectedId } ?: allMeds.firstOrNull()
+        else allMeds.firstOrNull()
+    }
+
     private val baseStateFlow = combine(
-        container.medicationDao.observeFirst(),
-        container.doseEventDao.observeToday(TimeFormatter.startOfDay(System.currentTimeMillis())),
+        selectedMedFlow,
+        container.medicationDao.observeAll(),
         alarmMissingFlow,
         container.settingsRepository.lastTimezoneChangeMillis,
-    ) { medication, events, alarmMissing, lastTzChange ->
+        container.settingsRepository.skipTomorrowDate,
+    ) { medication, allMeds, alarmMissing, lastTzChange, skipTomorrowDate ->
         val notificationsGranted = checkNotificationsGranted()
         val tzChangedRecently = lastTzChange > 0L &&
             (System.currentTimeMillis() - lastTzChange) < 24 * 60 * 60 * 1000L
-        val effectWindowUntil = computeEffectWindow(medication, events)
         val isOffDay = isOffDay(medication)
         val pillsRemaining = medication?.pillCount
         val showRefillWarning = pillsRemaining != null && pillsRemaining <= (medication?.refillAlertAt ?: 7)
+
+        val tomorrowStart = TimeFormatter.startOfDay(System.currentTimeMillis() + 24 * 60 * 60 * 1000L)
+        val tomorrowSkipped = skipTomorrowDate == tomorrowStart
+
         HomeUiState(
             medication = medication,
-            todayEvents = events,
+            medications = allMeds,
             showNotificationBanner = !notificationsGranted,
             showAlarmMissingBanner = alarmMissing,
             showReliabilityBanner = OemDetector.isKnownProblematic(),
             showTimezoneChangedBanner = tzChangedRecently,
             isLoading = false,
-            effectWindowUntilMillis = effectWindowUntil,
             isOffDay = isOffDay,
             pillsRemaining = pillsRemaining,
             showRefillWarning = showRefillWarning,
+            tomorrowSkipped = tomorrowSkipped,
         )
     }
 
-    // Middle combine: add undo/tap/error transient state (max 5 flows)
+    // Observe today's events for the selected medication
+    private val todayEventsFlow = selectedMedFlow.flatMapLatest { medication ->
+        if (medication == null) flowOf(emptyList())
+        else container.doseEventDao.observeToday(TimeFormatter.startOfDay(System.currentTimeMillis()))
+    }
+
+    // Effect window and elapsed time (rebuilt each ticker tick)
+    private val timedStateFlow = combine(
+        selectedMedFlow,
+        todayEventsFlow,
+        tickerFlow,
+    ) { medication, events, nowMillis ->
+        val effectWindowUntil = computeEffectWindow(medication, events)
+        val lastDose = events.lastOrNull { it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN }
+        val elapsed = lastDose?.let { nowMillis - it.actionedAt }
+        val nextAvailable = if (effectWindowUntil != null && effectWindowUntil > nowMillis) effectWindowUntil else null
+        Triple(effectWindowUntil, elapsed, nextAvailable)
+    }
+
     private val midStateFlow = combine(
         baseStateFlow,
-        _showUndoBanner,
-        _lastTapId,
-        _lastDoseTimeMillis,
-        _errorMessage,
-    ) { state, showUndo, tapId, doseTime, error ->
+        todayEventsFlow,
+        timedStateFlow,
+    ) { state, events, (effectWindow, elapsed, nextAvailable) ->
         state.copy(
-            showUndoBanner = showUndo,
-            lastTapId = tapId,
-            lastDoseTimeMillis = doseTime,
-            errorMessage = error,
+            todayEvents = events,
+            effectWindowUntilMillis = effectWindow,
+            elapsedSinceLastDoseMillis = elapsed,
+            nextDoseAvailableAtMillis = nextAvailable,
         )
+    }
+
+    // Undo visibility derived from time (not transient state) to survive WhileSubscribed teardown
+    private val undoVisibleFlow = combine(
+        _lastTapTimeMillis,
+        tickerFlow,
+    ) { tapTimeMillis, nowMillis ->
+        tapTimeMillis != null && nowMillis < tapTimeMillis + Constants.WIDGET_UNDO_WINDOW_MILLIS
     }
 
     val uiState: StateFlow<HomeUiState> = combine(
         midStateFlow,
-        _pendingWarning,
-        _pendingMedicationId,
-        _pendingTapTimeMillis,
-    ) { state, warning, pendingMedId, pendingTapTime ->
+        _showUndoBanner,
+        undoVisibleFlow,
+        _lastTapId,
+        _lastTapTimeMillis,
+    ) { state, showUndo, undoVisible, tapId, tapTime ->
         state.copy(
-            pendingWarning = warning,
-            pendingMedicationId = pendingMedId,
-            pendingTapTimeMillis = pendingTapTime,
+            showUndoBanner = showUndo && undoVisible,
+            lastTapId = tapId,
+            lastTapTimeMillis = tapTime,
         )
+    }.let { flow1 ->
+        combine(
+            flow1,
+            _errorMessage,
+            _pendingWarning,
+            _pendingMedicationId,
+            _pendingTapTimeMillis,
+        ) { state, error, warning, pendingMedId, pendingTapTime ->
+            state.copy(
+                errorMessage = error,
+                pendingWarning = warning,
+                pendingMedicationId = pendingMedId,
+                pendingTapTimeMillis = pendingTapTime,
+            )
+        }
+    }.let { flow2 ->
+        combine(flow2, _pendingNoteForTapId) { state, noteForTapId ->
+            state.copy(pendingNoteForTapId = noteForTapId)
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = HomeUiState(isLoading = true),
     )
 
-    /** Entry point for dose logging — checks for warnings before committing. */
     fun requestLogDose(medicationId: Long, tapTimeMillis: Long = System.currentTimeMillis()) {
         viewModelScope.launch {
             val medication = container.medicationDao.getById(medicationId) ?: return@launch
@@ -156,7 +232,6 @@ class HomeViewModel(
         }
     }
 
-    /** Called when user confirms a warning dialog. */
     fun confirmLogDose() {
         val medicationId = _pendingMedicationId.value ?: return
         val tapTime = _pendingTapTimeMillis.value ?: System.currentTimeMillis()
@@ -166,14 +241,12 @@ class HomeViewModel(
         viewModelScope.launch { executeLogDose(medicationId, tapTime) }
     }
 
-    /** Called when user dismisses a warning dialog without logging. */
     fun cancelLogDose() {
         _pendingWarning.value = null
         _pendingMedicationId.value = null
         _pendingTapTimeMillis.value = null
     }
 
-    /** Log a dose at an arbitrary time (backdate). Shows warnings. */
     fun logDoseAt(medicationId: Long, timeMillis: Long) {
         requestLogDose(medicationId, timeMillis)
     }
@@ -183,10 +256,14 @@ class HomeViewModel(
         viewModelScope.launch {
             try {
                 container.logDoseUseCase.undo(tapId)
+                val med = uiState.value.medication
+                val lastDose = med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
+                container.ambientNotificationManager.update(med, lastDose)
                 container.refreshWidgets()
                 _showUndoBanner.value = false
                 _lastTapId.value = null
-                _lastDoseTimeMillis.value = null
+                _lastTapTimeMillis.value = null
+                _pendingNoteForTapId.value = null
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to undo dose tapId=$tapId", e)
             }
@@ -214,19 +291,57 @@ class HomeViewModel(
         viewModelScope.launch { container.settingsRepository.setGiftCodeUnlocked(true) }
     }
 
+    fun selectMedication(medicationId: Long) {
+        viewModelScope.launch { container.settingsRepository.setSelectedMedicationId(medicationId) }
+    }
+
+    fun skipTomorrow() {
+        viewModelScope.launch {
+            val tomorrowStart = TimeFormatter.startOfDay(
+                System.currentTimeMillis() + 24 * 60 * 60 * 1000L
+            )
+            container.settingsRepository.setSkipTomorrow(tomorrowStart)
+        }
+    }
+
+    fun clearSkipTomorrow() {
+        viewModelScope.launch { container.settingsRepository.clearSkipTomorrow() }
+    }
+
+    fun saveNote(tapId: Long, note: String?, tags: String?) {
+        viewModelScope.launch {
+            try {
+                container.doseEventDao.updateNote(tapId, note, tags)
+                _pendingNoteForTapId.value = null
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save dose note", e)
+            }
+        }
+    }
+
+    fun dismissNoteCard() {
+        _pendingNoteForTapId.value = null
+    }
+
     // ===== Private helpers =====
 
     private suspend fun executeLogDose(medicationId: Long, tapTimeMillis: Long) {
         try {
             val tapId = container.logDoseUseCase.execute(medicationId, tapTimeMillis)
+            val med = container.medicationDao.getById(medicationId)
+            val lastDose = med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
+            container.ambientNotificationManager.update(med, lastDose)
             container.refreshWidgets()
             _lastTapId.value = tapId
-            _lastDoseTimeMillis.value = tapTimeMillis
+            _lastTapTimeMillis.value = tapTimeMillis
             _showUndoBanner.value = true
-            kotlinx.coroutines.delay(Constants.WIDGET_UNDO_WINDOW_MILLIS)
+            _pendingNoteForTapId.value = tapId
+
+            // Wait for undo window, then clear — but derive visibility from time, not this delay
+            delay(Constants.WIDGET_UNDO_WINDOW_MILLIS + 500L)
             _showUndoBanner.value = false
             _lastTapId.value = null
-            _lastDoseTimeMillis.value = null
+            _lastTapTimeMillis.value = null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to log dose for medication $medicationId", e)
             _errorMessage.value = context.getString(com.dosetap.R.string.error_dose_log_failed)
@@ -237,7 +352,6 @@ class HomeViewModel(
         val todayStart = TimeFormatter.startOfDay(tapTimeMillis)
         val todayEvents = container.doseEventDao.getForMedicationSince(medication.id, todayStart)
 
-        // Off-day check
         if (medication.offDays.isNotEmpty()) {
             val cal = Calendar.getInstance().apply { timeInMillis = tapTimeMillis }
             val dow = cal.get(Calendar.DAY_OF_WEEK)
@@ -249,7 +363,6 @@ class HomeViewModel(
             }
         }
 
-        // Late-dose check
         val cutoff = medication.lateCutoffMinutes
         if (cutoff != null) {
             val cal = Calendar.getInstance().apply { timeInMillis = tapTimeMillis }
@@ -261,12 +374,11 @@ class HomeViewModel(
                 val h12 = when { h == 0 -> 12; h > 12 -> h - 12; else -> h }
                 return DoseWarning(
                     type = DoseWarningType.LATE_DOSE,
-                    message = "It's past %d:%02d %s — your configured cutoff for ${medication.name}. Taking it now may affect sleep. Log anyway?".format(h12, m, amPm),
+                    message = "Heads up — taking ${medication.name} after %d:%02d %s may affect sleep. Log anyway?".format(h12, m, amPm),
                 )
             }
         }
 
-        // Double-dose check: already logged within the effect window
         val durationMinutes = medication.durationMinutes
         if (durationMinutes != null) {
             val lastTap = todayEvents.lastOrNull {
@@ -277,12 +389,11 @@ class HomeViewModel(
                 if (tapTimeMillis < effectWindowEnd) {
                     return DoseWarning(
                         type = DoseWarningType.DOUBLE_DOSE,
-                        message = "${medication.name} may still be active (effect window hasn't ended). Logging another dose so soon could cause double-dosing. Are you sure?",
+                        message = "${medication.name} may still be active. Logging another dose so soon could cause double-dosing. Are you sure?",
                     )
                 }
             }
         } else {
-            // Even without duration: warn if another dose was logged in the last 3 hours
             val recentThreshold = tapTimeMillis - 3 * 60 * 60 * 1000L
             val recentTap = todayEvents.lastOrNull {
                 (it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN) &&

@@ -5,9 +5,19 @@ package com.dosetap.util
  */
 object Constants {
 
-    // ===== Notification =====
-    const val NOTIFICATION_CHANNEL_ID = "med_alarms"
+    // ===== Notification channels =====
+    const val NOTIFICATION_CHANNEL_ID = "dose_alarms"
     const val NOTIFICATION_CHANNEL_NAME = "Medication Alarms"
+    const val NOTIFICATION_CHANNEL_AMBIENT = "dose_ambient"
+    const val NOTIFICATION_CHANNEL_AMBIENT_NAME = "Dose Status"
+    const val NOTIFICATION_CHANNEL_WARNINGS = "dose_warnings"
+    const val NOTIFICATION_CHANNEL_WARNINGS_NAME = "Dose Warnings"
+
+    // ===== Ambient notification =====
+    const val AMBIENT_NOTIFICATION_ID = 1
+    const val AMBIENT_OPEN_APP_REQUEST_CODE = 0xAA000
+    const val AMBIENT_LOG_DOSE_REQUEST_CODE = 0xAA001
+    const val ACTION_AMBIENT_LOG_DOSE = "com.dosetap.action.AMBIENT_LOG_DOSE"
 
     // ===== Alarm =====
     /** Snooze duration in minutes when user taps "Snooze". */
@@ -70,7 +80,22 @@ object Constants {
     // ===== Weekly summary =====
     const val WEEKLY_SUMMARY_REQUEST_CODE = 0x200_000
     const val WEEKLY_SUMMARY_NOTIFICATION_ID = 99_998
-    /** Day of week for the weekly summary (Sunday = 1). */
     const val WEEKLY_SUMMARY_DAY = 1 // Calendar.SUNDAY
     const val WEEKLY_SUMMARY_HOUR = 20 // 8 PM
+
+    // ===== Comedown / wear-off warning =====
+    const val WEAROFF_WARNING_REQUEST_CODE_BASE = 0x300_000
+    const val WEAROFF_WARNING_NOTIFICATION_ID_BASE = 99_000
+    const val ACTION_WEAROFF_WARNING = "com.dosetap.action.WEAROFF_WARNING"
+
+    // ===== Smart escalation =====
+    const val ESCALATION_REQUEST_CODE_BASE = 0x400_000
+    const val ESCALATION_FIRST_DELAY_MILLIS = 10 * 60 * 1000L   // +10 min
+    const val ESCALATION_SECOND_DELAY_MILLIS = 25 * 60 * 1000L  // +25 min
+
+    // ===== Refill warning =====
+    const val REFILL_WARNING_NOTIFICATION_ID_BASE = 98_000
+
+    // ===== Sponsor codes =====
+    const val SPONSOR_CODE_LENGTH = 11  // "XXX-XXX-XXX" format
 }

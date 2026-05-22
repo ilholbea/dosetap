@@ -37,6 +37,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,10 +49,12 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -60,12 +65,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -117,6 +126,8 @@ fun HomeScreen(
     var showPaywall by remember { mutableStateOf(false) }
     var showBackdateDialog by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    var showMedSwitcher by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(uiState.errorMessage) {
         if (uiState.errorMessage != null) {
@@ -166,13 +177,30 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = uiState.medication?.name ?: "DoseTap",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    val hasManyMeds = uiState.medications.size > 1
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = if (hasManyMeds) Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = LocalIndication.current,
+                        ) { showMedSwitcher = true } else Modifier,
+                    ) {
+                        Text(
+                            text = uiState.medication?.name ?: "DoseTap",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (hasManyMeds) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = "Switch medication",
+                                modifier = Modifier.size(16.dp).padding(start = 2.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -222,6 +250,17 @@ fun HomeScreen(
                                 onClick = {
                                     showOverflowMenu = false
                                     if (uiState.medication != null) showBackdateDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (uiState.tomorrowSkipped) "Undo skip tomorrow" else "Skip tomorrow")
+                                },
+                                leadingIcon = { Icon(Icons.Filled.CheckCircle, null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    if (uiState.tomorrowSkipped) viewModel.clearSkipTomorrow()
+                                    else viewModel.skipTomorrow()
                                 },
                             )
                         }
@@ -301,6 +340,18 @@ fun HomeScreen(
                 }
             }
 
+            // Dose notes card (appears briefly after logging)
+            val noteForTapId = uiState.pendingNoteForTapId
+            if (noteForTapId != null && !uiState.showUndoBanner) {
+                item {
+                    DoseNotesCard(
+                        onSave = { note, tags -> viewModel.saveNote(noteForTapId, note, tags) },
+                        onDismiss = { viewModel.dismissNoteCard() },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+            }
+
             // Refill warning
             val pillsRemaining = uiState.pillsRemaining
             if (uiState.showRefillWarning && pillsRemaining != null) {
@@ -360,6 +411,66 @@ fun HomeScreen(
             )
         }
     }
+
+    if (showMedSwitcher && uiState.medications.size > 1) {
+        ModalBottomSheet(
+            onDismissRequest = { showMedSwitcher = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+            ) {
+                Text(
+                    "Switch medication",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+                uiState.medications.forEach { med ->
+                    val isSelected = med.id == uiState.medication?.id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = LocalIndication.current,
+                            ) {
+                                viewModel.selectMedication(med.id)
+                                showMedSwitcher = false
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("💊", fontSize = 20.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            med.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (isSelected) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -372,14 +483,13 @@ private fun DoseHeroSection(
 ) {
     val context = LocalContext.current
 
-    // Status: what's the current state of the medication
     val (statusEmoji, statusText, statusColor) = when {
         uiState.isOffDay -> Triple("📅", "Off-day today", MaterialTheme.colorScheme.secondary)
         uiState.effectWindowUntilMillis != null ->
             Triple("⚡", "Active until ${TimeFormatter.formatTime(context, uiState.effectWindowUntilMillis)}", Color(0xFF1565C0))
         uiState.todayEvents.any { it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN } ->
             Triple("✅", "Dose logged today", Color(0xFF2E7D32))
-        else -> Triple("💊", "Ready to dose", MaterialTheme.colorScheme.onSurfaceVariant)
+        else -> Triple("💊", "No dose logged yet", MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
     Column(
@@ -407,12 +517,53 @@ private fun DoseHeroSection(
                 )
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(8.dp))
 
-            // Big dose button with press animation
-            var pressed by remember { mutableStateOf(false) }
+            // Elapsed time + next-dose-available countdown
+            val elapsed = uiState.elapsedSinceLastDoseMillis
+            val nextAvailable = uiState.nextDoseAvailableAtMillis
+            if (elapsed != null && elapsed > 0) {
+                Text(
+                    text = TimeFormatter.formatElapsedShort(elapsed) + " ago",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                val lastDoseEvent = uiState.todayEvents.lastOrNull {
+                    it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN
+                }
+                if (lastDoseEvent != null) {
+                    Text(
+                        text = "at ${TimeFormatter.formatTime(context, lastDoseEvent.actionedAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (nextAvailable != null && nextAvailable > System.currentTimeMillis()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Next dose at ${TimeFormatter.formatTime(context, nextAvailable)} — " +
+                            TimeFormatter.formatCountdown(nextAvailable - System.currentTimeMillis()),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF1565C0),
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            } else if (uiState.todayEvents.isEmpty()) {
+                Text(
+                    text = "No dose logged today",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // Big dose button — 250ms press-and-hold phantom tap protection
+            var holdProgress by remember { mutableFloatStateOf(0f) }
+            var isHolding by remember { mutableStateOf(false) }
             val scale by animateFloatAsState(
-                targetValue = if (pressed) 0.93f else 1f,
+                targetValue = if (isHolding) 0.93f else 1f,
                 animationSpec = tween(100),
                 label = "button_scale",
             )
@@ -430,16 +581,51 @@ private fun DoseHeroSection(
                             )
                         )
                     )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = LocalIndication.current,
-                        onClick = {
-                            pressed = true
-                            onLogDose()
-                        }
-                    ),
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                isHolding = true
+                                val startTime = System.currentTimeMillis()
+                                val holdDuration = 250L
+                                val step = 16L
+                                var elapsed2 = 0L
+                                var confirmed = false
+                                try {
+                                    while (elapsed2 < holdDuration) {
+                                        kotlinx.coroutines.delay(step)
+                                        elapsed2 = System.currentTimeMillis() - startTime
+                                        holdProgress = (elapsed2.toFloat() / holdDuration).coerceIn(0f, 1f)
+                                        if (!tryAwaitRelease()) {
+                                            // Released early
+                                            break
+                                        }
+                                    }
+                                    if (elapsed2 >= holdDuration) {
+                                        confirmed = true
+                                        onLogDose()
+                                    }
+                                } finally {
+                                    isHolding = false
+                                    holdProgress = 0f
+                                }
+                            }
+                        )
+                    },
                 contentAlignment = Alignment.Center,
             ) {
+                // Radial progress fill during hold
+                if (isHolding && holdProgress > 0f) {
+                    androidx.compose.foundation.Canvas(modifier = Modifier.size(160.dp)) {
+                        drawArc(
+                            color = android.graphics.Color.WHITE.let {
+                                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.25f)
+                            },
+                            startAngle = -90f,
+                            sweepAngle = 360f * holdProgress,
+                            useCenter = true,
+                        )
+                    }
+                }
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -447,7 +633,7 @@ private fun DoseHeroSection(
                     Text(text = "💊", fontSize = 42.sp)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Log dose",
+                        text = if (isHolding) "Hold…" else "Log dose",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onPrimary,
                         fontWeight = FontWeight.Bold,
@@ -455,37 +641,10 @@ private fun DoseHeroSection(
                 }
             }
 
-            // Reset pressed state after a frame
-            LaunchedEffect(pressed) {
-                if (pressed) {
-                    kotlinx.coroutines.delay(150)
-                    pressed = false
-                }
-            }
-
             Spacer(Modifier.height(16.dp))
 
-            // Last dose info
-            val lastDoseEvent = uiState.todayEvents.lastOrNull {
-                it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN
-            }
-            if (lastDoseEvent != null) {
-                Text(
-                    text = "Last dose: ${TimeFormatter.formatTime(context, lastDoseEvent.actionedAt)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text(
-                    text = "No doses logged today",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
             // Off-day note + override
-            if (uiState.isOffDay && isPro) {
-                Spacer(Modifier.height(8.dp))
+            if (uiState.isOffDay) {
                 TextButton(onClick = onLogDose) {
                     Text(
                         "Log anyway (off-day)",
@@ -493,6 +652,14 @@ private fun DoseHeroSection(
                         color = MaterialTheme.colorScheme.secondary,
                     )
                 }
+            }
+
+            if (uiState.tomorrowSkipped) {
+                Text(
+                    text = "📅 Tomorrow is skipped",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
         } else {
@@ -654,6 +821,69 @@ private fun UndoBanner(doseTimeMillis: Long, onUndo: () -> Unit, modifier: Modif
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DoseNotesCard(
+    onSave: (note: String?, tags: String?) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val presetTags = listOf("with food", "late", "forgot earlier", "half dose", "brand change", "crashed early", "slept poorly")
+    val selectedTags = remember { mutableStateOf(setOf<String>()) }
+    var customNote by remember { mutableStateOf("") }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Add a note?",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Outlined.Cancel, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                presetTags.forEach { tag ->
+                    val isSelected = tag in selectedTags.value
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            selectedTags.value = if (isSelected)
+                                selectedTags.value - tag
+                            else
+                                selectedTags.value + tag
+                        },
+                        label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = customNote,
+                onValueChange = { customNote = it },
+                placeholder = { Text("Optional note…", style = MaterialTheme.typography.bodySmall) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Skip") }
+                TextButton(onClick = {
+                    val tagsStr = selectedTags.value.takeIf { it.isNotEmpty() }?.joinToString(",")
+                    onSave(customNote.trim().takeIf { it.isNotBlank() }, tagsStr)
+                }) { Text("Save", fontWeight = FontWeight.SemiBold) }
+            }
         }
     }
 }

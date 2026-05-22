@@ -12,8 +12,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,22 +26,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -46,8 +44,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,22 +53,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dosetap.DoseTapApp
-import com.dosetap.R
 import com.dosetap.domain.model.Medication
-import com.dosetap.util.Constants
-import com.dosetap.util.TimeFormatter
 import com.dosetap.widget.DoseWidgetReceiver
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private const val TAG = "OnboardingScreen"
 private const val TOTAL_STEPS = 4
+
+private data class MedPreset(
+    val label: String,
+    val durationMinutes: Int?,
+)
+
+private val MED_PRESETS = listOf(
+    MedPreset("Ritalin IR", 240),
+    MedPreset("Ritalin LA", 480),
+    MedPreset("Concerta", 720),
+    MedPreset("Adderall IR", 300),
+    MedPreset("Adderall XR", 480),
+    MedPreset("Vyvanse", 720),
+    MedPreset("Strattera", null),
+    MedPreset("Other", null),
+)
 
 @Composable
 fun OnboardingScreen(onComplete: () -> Unit) {
@@ -79,37 +89,38 @@ fun OnboardingScreen(onComplete: () -> Unit) {
     val container = (context.applicationContext as DoseTapApp).container
     val scope = rememberCoroutineScope()
 
+    var savedMedication by remember { mutableStateOf<Medication?>(null) }
+
     AnimatedContent(
         targetState = currentStep,
         transitionSpec = {
-            val direction = if (targetState > initialState) 1 else -1
-            slideInHorizontally { it * direction } togetherWith slideOutHorizontally { -it * direction }
+            val dir = if (targetState > initialState) 1 else -1
+            slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
         },
         label = "onboarding_step",
     ) { step ->
         when (step) {
-            0 -> WelcomeStep(
-                onNext = { currentStep = 1 }
-            )
-            1 -> PermissionsStep(
-                onNext = { currentStep = 2 }
-            )
+            0 -> WelcomeStep(onNext = { currentStep = 1 })
+            1 -> PermissionsStep(onNext = { currentStep = 2 })
             2 -> AddMedicationStep(
                 onNext = { medication ->
-                    scope.launch {
-                        try {
-                            container.medicationDao.insert(medication)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to save medication during onboarding", e)
-                        }
-                        currentStep = 3
-                    }
+                    savedMedication = medication
+                    currentStep = 3
                 }
             )
             3 -> PinWidgetStep(
                 onComplete = {
                     scope.launch {
+                        try {
+                            savedMedication?.let { container.medicationDao.insert(it) }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to save medication during onboarding", e)
+                        }
                         container.settingsRepository.setOnboardingComplete(true)
+                        val med = container.medicationDao.getFirst()
+                        if (med != null) {
+                            container.ambientNotificationManager.update(med, null)
+                        }
                         onComplete()
                     }
                 }
@@ -129,33 +140,29 @@ private fun WelcomeStep(onNext: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Medication,
-                contentDescription = null,
-                modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            Text("💊", fontSize = 72.sp, textAlign = TextAlign.Center)
             Spacer(Modifier.height(24.dp))
             Text(
-                text = stringResource(R.string.onboarding_welcome_title),
-                style = MaterialTheme.typography.headlineLarge,
+                text = "DoseTap",
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.onboarding_welcome_subtitle),
+                text = "One tap. Never miss a dose.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(24.dp))
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 ),
             ) {
                 Text(
-                    text = stringResource(R.string.onboarding_welcome_disclaimer),
+                    text = "DoseTap is a reminder tool, not a medical device. It does not provide medical advice and is not a substitute for consulting your doctor.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(16.dp),
@@ -163,11 +170,8 @@ private fun WelcomeStep(onNext: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(48.dp))
-            Button(
-                onClick = onNext,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.onboarding_next))
+            Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) {
+                Text("Get started")
             }
         }
     }
@@ -187,9 +191,7 @@ private fun PermissionsStep(onNext: () -> Unit) {
 
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        notificationsGranted = granted
-    }
+    ) { granted -> notificationsGranted = granted }
 
     Scaffold { innerPadding ->
         Column(
@@ -200,7 +202,7 @@ private fun PermissionsStep(onNext: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(48.dp))
             Icon(
                 imageVector = Icons.Filled.NotificationsActive,
                 contentDescription = null,
@@ -209,118 +211,65 @@ private fun PermissionsStep(onNext: () -> Unit) {
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                text = stringResource(R.string.onboarding_permissions_title),
+                text = "Allow notifications",
                 style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.onboarding_permissions_subtitle),
+                text = "DoseTap shows a quiet status on your lock screen at all times, plus an alarm when it's time to take your medication.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(32.dp))
 
-            // Notifications permission card
-            PermissionCard(
-                icon = Icons.Filled.NotificationsActive,
-                title = stringResource(R.string.onboarding_permissions_notifications_title),
-                description = stringResource(R.string.onboarding_permissions_notifications_desc),
-                isGranted = notificationsGranted,
-                buttonText = if (notificationsGranted)
-                    stringResource(R.string.onboarding_permissions_already_granted)
-                else
-                    stringResource(R.string.onboarding_permissions_allow),
-                onAction = {
-                    if (!notificationsGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                },
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            // DND bypass card (informational — requires user to do it in system settings)
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
+                    containerColor = if (notificationsGranted)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = LocalIndication.current,
+                    ) {
+                        if (!notificationsGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.onboarding_permissions_dnd_title),
-                        style = MaterialTheme.typography.titleSmall,
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.NotificationsActive,
+                        contentDescription = null,
+                        tint = if (notificationsGranted) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(R.string.onboarding_permissions_dnd_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Notifications", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (notificationsGranted) "Allowed ✓" else "Tap to allow",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (notificationsGranted) {
+                        Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
 
             Spacer(Modifier.height(48.dp))
-
-            Button(
-                onClick = onNext,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.onboarding_next))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PermissionCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    description: String,
-    isGranted: Boolean,
-    buttonText: String,
-    onAction: () -> Unit,
-) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isGranted)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surface,
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 12.dp),
-            ) {
-                Text(text = title, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (isGranted) {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            } else {
-                TextButton(onClick = onAction) {
-                    Text(buttonText)
-                }
+            Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) {
+                Text("Continue")
             }
         }
     }
@@ -329,148 +278,113 @@ private fun PermissionCard(
 @Composable
 private fun AddMedicationStep(onNext: (Medication) -> Unit) {
     var name by remember { mutableStateOf("") }
-    val followUps = remember { mutableStateListOf(240, 480) } // default: +4h, +8h
-    var nameError by remember { mutableStateOf(false) }
+    var followUp1Hours by remember { mutableFloatStateOf(4f) }
+    var followUp2Hours by remember { mutableFloatStateOf(8f) }
+    var selectedPreset by remember { mutableStateOf<MedPreset?>(null) }
+    var durationMinutes by remember { mutableStateOf<Int?>(null) }
 
     Scaffold { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(24.dp)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Spacer(Modifier.height(40.dp))
-            Icon(
-                imageVector = Icons.Filled.Medication,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(64.dp)
-                    .align(Alignment.CenterHorizontally),
-                tint = MaterialTheme.colorScheme.primary,
+            Spacer(Modifier.height(32.dp))
+            Text(
+                text = "Add your medication",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Quick-fill or type manually — you can change this anytime.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.onboarding_medication_title),
-                style = MaterialTheme.typography.headlineMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.onboarding_medication_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(32.dp))
 
+            // Quick-fill preset chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MED_PRESETS.forEach { preset ->
+                    FilterChip(
+                        selected = preset == selectedPreset,
+                        onClick = {
+                            selectedPreset = preset
+                            if (preset.label != "Other") {
+                                name = preset.label
+                            }
+                            durationMinutes = preset.durationMinutes
+                        },
+                        label = { Text(preset.label, style = MaterialTheme.typography.labelMedium) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = name,
-                onValueChange = {
-                    name = it
-                    nameError = false
-                },
-                label = { Text(stringResource(R.string.onboarding_medication_name_label)) },
-                placeholder = { Text(stringResource(R.string.onboarding_medication_name_placeholder)) },
-                isError = nameError,
-                supportingText = if (nameError) {
-                    { Text(stringResource(R.string.error_medication_name_empty)) }
-                } else null,
+                onValueChange = { name = it },
+                label = { Text("Medication name") },
+                placeholder = { Text("e.g. Ritalin 10mg") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
             )
 
             Spacer(Modifier.height(24.dp))
-
             Text(
-                text = stringResource(R.string.onboarding_medication_followups_title),
-                style = MaterialTheme.typography.titleMedium,
+                text = "First reminder: ${followUp1Hours.roundToInt()}h after dose",
+                style = MaterialTheme.typography.bodyMedium,
             )
+            Slider(
+                value = followUp1Hours,
+                onValueChange = { followUp1Hours = it },
+                valueRange = 1f..8f,
+                steps = 6,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
             Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Second reminder: ${followUp2Hours.roundToInt()}h after dose",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = followUp2Hours,
+                onValueChange = { followUp2Hours = it },
+                valueRange = 2f..12f,
+                steps = 9,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-            followUps.forEachIndexed { index, minutes ->
-                FollowUpEditor(
-                    index = index,
-                    minutes = minutes,
-                    onMinutesChanged = { followUps[index] = it },
-                    onRemove = { followUps.removeAt(index) },
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-
-            if (followUps.size < Constants.MAX_FOLLOWUP_COUNT) {
-                OutlinedButton(
-                    onClick = { followUps.add(Constants.DEFAULT_FOLLOWUPS.getOrElse(followUps.size) { 60 }) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Text(stringResource(R.string.onboarding_medication_add_followup))
-                }
-            }
-
-            Spacer(Modifier.height(48.dp))
-
+            Spacer(Modifier.height(32.dp))
             Button(
                 onClick = {
-                    if (name.isBlank()) {
-                        nameError = true
-                        return@Button
-                    }
+                    val trimmed = name.trim()
+                    if (trimmed.isBlank()) return@Button
                     onNext(
                         Medication(
-                            name = name.trim(),
-                            followUps = followUps.toList(),
+                            name = trimmed,
+                            followUps = listOf(
+                                followUp1Hours.roundToInt() * 60,
+                                followUp2Hours.roundToInt() * 60,
+                            ),
+                            durationMinutes = durationMinutes,
                         )
                     )
                 },
+                enabled = name.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(stringResource(R.string.onboarding_medication_save))
+                Text("Continue")
             }
-        }
-    }
-}
-
-@Composable
-private fun FollowUpEditor(
-    index: Int,
-    minutes: Int,
-    onMinutesChanged: (Int) -> Unit,
-    onRemove: () -> Unit,
-) {
-    val cdRemove = stringResource(R.string.cd_remove_followup, index + 1)
-    Card {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(
-                        R.string.onboarding_medication_followup_label,
-                        index + 1,
-                        TimeFormatter.formatInterval(minutes),
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier.semantics { contentDescription = cdRemove },
-                ) {
-                    Text("×", style = MaterialTheme.typography.titleLarge)
-                }
-            }
-            // Slider: 30 min to 720 min (12h) in 15-min steps
-            val steps = (Constants.MAX_FOLLOWUP_MINUTES - Constants.MIN_FOLLOWUP_MINUTES) / Constants.FOLLOWUP_STEP_MINUTES - 1
-            Slider(
-                value = minutes.toFloat(),
-                onValueChange = { onMinutesChanged((it / Constants.FOLLOWUP_STEP_MINUTES).toInt() * Constants.FOLLOWUP_STEP_MINUTES) },
-                valueRange = Constants.MIN_FOLLOWUP_MINUTES.toFloat()..Constants.MAX_FOLLOWUP_MINUTES.toFloat(),
-                steps = steps,
-            )
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -496,13 +410,14 @@ private fun PinWidgetStep(onComplete: () -> Unit) {
             )
             Spacer(Modifier.height(24.dp))
             Text(
-                text = stringResource(R.string.onboarding_widget_title),
+                text = "Add the widget",
                 style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             Text(
-                text = stringResource(R.string.onboarding_widget_subtitle),
+                text = "Log your dose in one tap from your home screen — no need to open the app.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -516,16 +431,14 @@ private fun PinWidgetStep(onComplete: () -> Unit) {
                         try {
                             appWidgetManager.requestPinAppWidget(widgetProvider, null, null)
                         } catch (e: Exception) {
-                            // Some launchers don't support it even when isRequestPinAppWidgetSupported=true
-                            Log.w(TAG, "requestPinAppWidget failed, launcher may not support it", e)
+                            Log.w(TAG, "requestPinAppWidget failed", e)
                         }
                     }
-                    // Always proceed regardless of pin result
                     onComplete()
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(stringResource(R.string.onboarding_widget_pin))
+                Text("Add widget to home screen")
             }
             Spacer(Modifier.height(16.dp))
             Card(
@@ -534,7 +447,7 @@ private fun PinWidgetStep(onComplete: () -> Unit) {
                 )
             ) {
                 Text(
-                    text = stringResource(R.string.onboarding_widget_pin_fallback),
+                    text = "Long-press your home screen → Widgets → DoseTap → drag to place.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
@@ -543,7 +456,7 @@ private fun PinWidgetStep(onComplete: () -> Unit) {
             }
             Spacer(Modifier.height(32.dp))
             TextButton(onClick = onComplete) {
-                Text(stringResource(R.string.onboarding_widget_skip))
+                Text("Skip for now", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

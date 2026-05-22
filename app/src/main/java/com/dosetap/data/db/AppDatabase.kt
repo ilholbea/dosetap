@@ -17,10 +17,13 @@ import com.dosetap.domain.model.ScheduledAlarm
  * Schema version history:
  * - v1: Initial schema (Medication, DoseEvent, ScheduledAlarm)
  * - v2: Added dailyReminderMinutes and lateCutoffMinutes to Medication
+ * - v3: Added pillCount, refillAlertAt, offDays, durationMinutes to Medication
+ * - v4: Added prescriptionDate, daysSupply, refillBufferDays, morningAnchor to Medication;
+ *        note, tags to DoseEvent
  */
 @Database(
     entities = [Medication::class, DoseEvent::class, ScheduledAlarm::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -49,6 +52,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medications ADD COLUMN prescriptionDate INTEGER")
+                db.execSQL("ALTER TABLE medications ADD COLUMN daysSupply INTEGER")
+                db.execSQL("ALTER TABLE medications ADD COLUMN refillBufferDays INTEGER NOT NULL DEFAULT 7")
+                db.execSQL("ALTER TABLE medications ADD COLUMN morningAnchor TEXT")
+                db.execSQL("ALTER TABLE dose_events ADD COLUMN note TEXT")
+                db.execSQL("ALTER TABLE dose_events ADD COLUMN tags TEXT")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -64,7 +78,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DATABASE_NAME,
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
                 .build()
         }

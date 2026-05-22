@@ -136,6 +136,15 @@ class DoseActionReceiver : BroadcastReceiver() {
             nm.cancel(notificationId)
         }
 
+        // Update ambient notification after action
+        try {
+            val med = container.medicationDao.getFirst()
+            val lastDose = med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
+            container.ambientNotificationManager.update(med, lastDose)
+        } catch (e: Exception) {
+            Log.e(TAG, "Ambient notification update failed", e)
+        }
+
         // Inline widget refresh — awaited before pendingResult.finish()
         // Glance reuses a running session on update() and only re-reads DataStore, so we must
         // write the current dose time to DataStore first for the composable to pick it up.

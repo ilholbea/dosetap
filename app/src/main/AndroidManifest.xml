@@ -90,6 +90,20 @@
             android:name=".alarm.WeeklySummaryReceiver"
             android:exported="false" />
 
+        <!-- Handles "Log dose" action from the ambient persistent notification -->
+        <receiver
+            android:name=".alarm.AmbientLogDoseReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.dosetap.action.AMBIENT_LOG_DOSE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Handles wear-off warning alarm -->
+        <receiver
+            android:name=".alarm.WearOffWarningReceiver"
+            android:exported="false" />
+
         <!--
             BootReceiver listens for all 4 system events that require alarm rescheduling:
             1. BOOT_COMPLETED — device rebooted (alarms are lost)

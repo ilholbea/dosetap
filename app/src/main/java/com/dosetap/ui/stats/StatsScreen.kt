@@ -1,13 +1,13 @@
 package com.dosetap.ui.stats
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -139,7 +140,7 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
                     item { StreakCard(state) }
                     item { AdherenceRow(state) }
                     if (isPro) {
-                        item { ChartCard(state.last14Days) }
+                        item { HeatmapCard(state.last90Days) }
                     } else {
                         item { ChartProGate(onUnlock = { showPaywall = true }) }
                     }
@@ -269,72 +270,75 @@ private fun AdherenceCard(label: String, value: Float, modifier: Modifier = Modi
 }
 
 @Composable
-private fun ChartCard(days: List<DayStats>) {
+private fun HeatmapCard(days: List<DayStats>) {
+    // days is oldest-first (89 daysAgo .. 0 daysAgo = 90 entries)
+    // Pad to a full 13-week (91-day) grid: insert empty day at the start if needed
+    val paddedDays: List<DayStats?> = buildList {
+        repeat(91 - days.size) { add(null) }
+        addAll(days)
+    }
+    // 13 columns (weeks), 7 rows (days Sun..Sat)
+    val weekColumns = paddedDays.chunked(7)
+
+    val takenColor = Color(0xFF2E7D32)
+    val missedColor = MaterialTheme.colorScheme.error
+    val emptyColor = MaterialTheme.colorScheme.surfaceVariant
+    val rowLabels = listOf("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Last 14 days",
+                text = "90-day history",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 12.dp),
             )
+            Spacer(Modifier.height(10.dp))
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                days.forEach { day ->
-                    DayBar(day)
+                // Day-of-week labels column
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    rowLabels.forEach { label ->
+                        Box(
+                            modifier = Modifier.size(width = 18.dp, height = 11.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 7.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                weekColumns.forEach { week ->
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        week.forEach { day ->
+                            val color = when {
+                                day == null -> Color.Transparent
+                                day.takenCount > 0 -> takenColor
+                                day.missedCount > 0 || day.skippedCount > 0 -> missedColor
+                                else -> emptyColor
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(11.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(color),
+                            )
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
-            // Legend
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LegendItem(color = Color(0xFF2E7D32), label = "Taken")
-                LegendItem(color = MaterialTheme.colorScheme.error, label = "Missed")
-                LegendItem(color = MaterialTheme.colorScheme.outline, label = "No data")
+                LegendItem(color = takenColor, label = "Taken")
+                LegendItem(color = missedColor, label = "Missed")
+                LegendItem(color = emptyColor, label = "No data")
             }
         }
-    }
-}
-
-@Composable
-private fun DayBar(day: DayStats) {
-    val primary = MaterialTheme.colorScheme.primary
-    val error = MaterialTheme.colorScheme.error
-    val surface = MaterialTheme.colorScheme.surfaceVariant
-
-    val barColor = when {
-        day.takenCount > 0 -> Color(0xFF2E7D32)
-        day.missedCount > 0 || day.skippedCount > 0 -> error
-        else -> surface
-    }
-    val hasActivity = day.takenCount + day.missedCount + day.skippedCount > 0
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .width(14.dp)
-                .height(40.dp),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(14.dp)
-                    .fillMaxHeight(if (hasActivity) 1f else 0.12f)
-                    .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                    .background(barColor.copy(alpha = if (hasActivity) 1f else 0.3f))
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = day.label,
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 8.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -369,13 +373,13 @@ private fun ChartProGate(onUnlock: () -> Unit) {
             Text("📊", fontSize = 32.sp)
             Spacer(Modifier.height(8.dp))
             Text(
-                "14-day adherence chart",
+                "90-day adherence heatmap",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "See your full history at a glance — available with Pro.",
+                "See your full 3-month history at a glance — available with Pro.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,

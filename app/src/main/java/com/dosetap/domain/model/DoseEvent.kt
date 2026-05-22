@@ -37,6 +37,10 @@ data class DoseEvent(
      * For INITIAL_TAP itself this is set after insert (updated to its own id).
      */
     val sourceTapId: Long,
+    /** Optional free-text note added after logging (e.g. "with food"). */
+    val note: String? = null,
+    /** Comma-separated preset tag keys selected by user (e.g. "with_food,late"). */
+    val tags: String? = null,
 )
 
 /** The possible outcomes for a dose event. */
