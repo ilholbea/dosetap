@@ -1,261 +1,342 @@
-# DoseTap — Revised Plan
+# DoseTap — Product Plan v3
 
-> Reviewed and restructured with Opus. Cuts marked ~~strikethrough~~. New items marked *.
+> Rewritten from three lenses simultaneously: ADHD psychiatrist (clinical value, harm avoidance), actual ADHD user (will they open it tomorrow?), indie dev (does it earn €2.99 and spread itself?). Where this plan disagrees with v2, the reasoning is stated inline. **Bold** = new or materially changed. ~~Strikethrough~~ = cut from prior plan.
 
 ---
 
-## CRITICAL: Fix Freemium Gating First
+## The Core Thesis (read before building anything)
 
-The current Pro gates are wrong in several places. These need fixing before launch or the app will get 1-star reviews and uninstalls.
+**Tracking apps lose. Routine apps win.**
 
-**Move to FREE (currently wrongly gated as Pro):**
+The #1 clinical reason ADHD patients miss stimulant doses is not memory — it's that the dose isn't yet welded to an existing morning anchor (coffee, alarm-off, phone-unlock, brushing teeth). A reminder app that pings and waits is a tracking app. A reminder app that *becomes the anchor* is an adherence app.
 
-- `canUsePillCount` → **FREE.** Forgetting to refill stimulants is the #1 failure mode for ADHD. Locking this behind a paywall is hostile to the user. Free gets pill count + refill warning. Pro gets prescription-date-based refill prediction.
-- `canUseOffDays` → **FREE.** Mon–Fri only prescriptions are the default for many ADHD patients. A free user getting false missed-dose warnings every Saturday will uninstall. Free gets recurring off-days. Pro can have the multi-day "drug holiday" variant.
-- `canUseExportImport` → **FREE.** GDPR data portability is a user right in the EU. Locking export behind a paywall will trigger policy complaints. Export and import stay free.
-- `canUseLateCutoff` → **FREE.** This is a safety feature ("don't take stimulants past 4 PM or you won't sleep"). The codebase already says "double-dose protection — never lock this." Apply the same logic here.
+DoseTap's single job is: **be the first thing the user sees on their lock screen every morning, with the dose button one tap away, and confirm the action loudly and satisfyingly.** Everything else — stats, PDFs, heatmaps — is secondary. If the persistent lock-screen notification + widget pair isn't world-class, no Pro feature will save this.
 
-**Stays Pro (correctly gated):**
-- Multiple medications
+This thesis reorders the plan. The persistent notification (formerly #2) becomes #1. Stats features get demoted. A new "Morning Anchor" concept is added.
+
+---
+
+## Hard Rules (clinical safety + ethics)
+
+These are not features. They are constraints. Violating any of them ships harm.
+
+1. **Never suggest the user take a dose they haven't been prescribed.** No "you missed your 9am, take it now" copy. Use "Log if taken" framing. The app does not advise — it records and reminds.
+2. **Never gamify dose-taking.** No streak shame, no "you broke a 47-day streak!" red text, no leaderboards, ever. Streaks display as a quiet number, not a trophy. A missed dose because someone was sick or had a planned off-day must not feel like failure.
+3. **Never frame missed doses as harm to the user.** A missed stimulant dose is an inconvenience, not a medical emergency. Copy must reflect that. Anxiety-inducing reminders are a harm vector for ADHD patients who already have RSD and perfectionism comorbidities.
+4. **Never encourage self-adjustment of dose timing or amount.** No "you took it 2h late, try earlier tomorrow" nudges. That's a psychiatrist's job.
+5. **The late-cutoff warning is the only feature that warns *against* an action.** Keep its copy gentle: "Heads up — taking this after 4pm often disrupts sleep." Not "DON'T TAKE IT."
+6. **Pill count and refill reminders stay free.** Running out of a controlled stimulant is genuinely harmful (withdrawal, rebound, day lost). Paywalling refill warnings is unethical for this drug class.
+7. **No cloud, no account, no analytics SDK.** The privacy story ("your data never leaves your phone") is both ethical and a marketing asset. Stick to it.
+
+---
+
+## CRITICAL: Fix Freemium Gates Before Anything Else
+
+The current Pro gates are wrong. Ship them as-is and you get 1-star reviews citing "predatory paywall on a medical app."
+
+**Move to FREE:**
+- `canUsePillCount` — see Hard Rule 6.
+- `canUseOffDays` — Mon–Fri only is the default ADHD pattern, not an edge case. A free user gets false missed-dose warnings every Saturday and uninstalls by week 2.
+- `canUseExportImport` — GDPR Article 20 (data portability). Locking this risks Play policy strikes and is legally fragile in the EU.
+- `canUseLateCutoff` — safety adjacent. The codebase already enforces "double-dose protection — never lock." Same logic applies.
+- `canUseComedownWarning` — safety adjacent (planning for wear-off prevents users from driving / parenting while crashing).
+
+**Stays Pro (genuinely justifies €2.99):**
+- Multiple medications (>1)
+- Calendar heatmap + trends
+- Doctor visit PDF report
+- Smart escalation reminders (the 10/25 min ladder)
 - Custom alarm tone
-- Full stats (calendar heatmap + trends)
-- Doctor visit PDF report ← *replaces weekly summary as the Pro stats feature*
-- Smart escalation reminders (5 / 15 min ladder)
-- Daily proactive reminder ("you haven't logged yet")
-- Effect window tracker (active-until chip)
+- **Sponsor-a-friend (1 gift slot)** — see section 9
+- Prescription-date-based refill prediction (pill count stays free; the "book your psych appointment by X" prediction is Pro)
 
-**Cut from Pro list:**
-- Weekly summary notification — low engagement, ADHD users dismiss it. Replace with Doctor Report.
+**Cut from Pro list entirely:**
+- Weekly summary notification — replaced by Doctor Report.
+- Effect-window "active until" chip — this is a clinical safety/planning feature. **Move to free.** Locking the "when does my med wear off?" question behind a paywall is hostile.
+- Daily proactive reminder ("you haven't logged yet") — this is the core reminder function. **Move to free.** If you paywall the *reminder* in a *reminder app*, you have no free product.
 
----
-
-## Week 1 — Do Before Anything Else
-
-### 1. Fix freemium gates (above) — 1h
-Update `FeatureFlag.kt`. Every gate listed above flips to `= true` for free users.
-
-### 2. Persistent dose-state notification — 1–2 days *(NEW, highest leverage)*
-A sticky `Notification.Builder` with `setOngoing(true)` and an inline "Log dose" action button.
-
-- Shows on lock screen and notification shade at all times
-- Content: "✅ Ritalin — taken at 9:02" or "💊 Ritalin — not logged yet"
-- Action button: "Log dose" (fires `TapAction` directly — no app open required)
-- Updates automatically when dose is logged, undone, or day rolls over
-- **Free tier.** This is the core ambient UI. The widget is secondary.
-- Use a separate low-priority notification channel (silent, no vibration) so it doesn't ping on update
-- Android 14 note: `setOngoing(true)` notifications can now be swiped away by users — handle re-creation in `onNotificationRemoved` or re-post on next alarm
-
-### 3. Time-since-last-dose + next-dose countdown — 2h *(NEW)*
-The hero section currently shows "Last dose: 9:02" but not "2h 14m ago."
-For IR meds, the gap is what drives the "can I take another?" decision.
-
-- Below the status chip: show elapsed time ("3h 20m ago") in large text, wall-clock time in small
-- If effect window is configured: show "Next dose available at 12:00 — in 40 min" instead of just "Active until 12:00"
-- This is the #1 piece of information IR users look at
-
-### 4. Multi-medication home switcher — 1 day
-Currently `HomeViewModel` uses `medicationDao.observeFirst()` everywhere. 
-The whole state (effect window, off-day, pill count, warnings) is single-medication.
-
-Proper fix:
-- Store `selectedMedicationId: Long` in DataStore
-- `HomeViewModel` observes `selectedMedicationId` → loads that medication's full state
-- Home screen top bar: medication name is tappable → shows a bottom sheet list of all medications to switch between
-- Each medication shows its own status chip, effect window, pill count
-- Keep `observeFirst()` as fallback if nothing is selected yet
-
-### 5. Remaining bugs — 1h
-- Follow-up count Pro gate: hide "+ Add follow-up" after 2 for free users
-- `SettingsViewModel.saveMedication`: check `FeatureFlag.maxMedications(isPro)` before insert
-- `AlarmScheduler`: check `FeatureFlag` before scheduling off-days / daily reminder logic on downgrade
+> Disagreement with v2: v2 kept "effect window tracker" and "daily proactive reminder" as Pro. That's wrong. Both are core to the free product's value. Pro should add *power*, not unlock *function*.
 
 ---
 
-## Week 2 — Core Experience
+## The Killer Feature: Morning Anchor (NEW, replaces "persistent notification" as #1)
 
-### 6. Onboarding + medication preset library — 1 day
-Currently the app drops a new user into an empty home screen with no explanation.
-Onboarding is 3 steps, one action each:
+The persistent notification in v2 is correct but undersold. Rebuild it as the **Morning Anchor** — a deliberately designed first-touch surface that exists everywhere the user looks in the first 60 seconds of waking up:
 
-**Step 1 — What's your medication?**
-Preset picker with common ADHD meds and pre-filled effect duration:
-- Ritalin IR / Generic methylphenidate IR → 240 min (4h)
-- Ritalin LA / Medikinet CR → 480 min (8h)
-- Concerta / Equasym XL → 720 min (12h)
-- Adderall IR → 300 min (5h)
-- Adderall XR → 480 min (8h)
-- Vyvanse / Elvanse → 720–840 min (12–14h)
-- Strattera → no effect window (non-stimulant, mark as such)
-- "Other / manual" → free text + manual duration
+1. **Persistent lock-screen notification** (free, default on)
+   - `setOngoing(true)`, low-priority silent channel, single line + one big "Log dose" action.
+   - Three states: pending (💊 grey), taken (✅ green with time + "2h 14m ago"), late (🟡 amber with elapsed time).
+   - Re-post on Android 14 swipe-dismiss via `NotificationListenerService` is not allowed without sensitive permission — instead, re-post on next AlarmManager fire and on `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED`.
+   - Tapping the action button logs the dose with **no app launch, no unlock**. This is the single most important interaction in the app.
 
-**Step 2 — What time do you usually take it?**
-Single time picker → sets the first alarm immediately.
+2. **Widget** (free, existing) — same three states, same one-tap action. Same visual language as the notification. They're the same UI, two surfaces.
 
-**Step 3 — "Here's how DoseTap works"**
-One screen: tap the big button every time you take your meds. That's it. Shows the button, shows the undo banner, done.
+3. **Always-on display tile** (Pro, stretch goal — defer to v1.1) — Quick Settings tile with dose state. Low effort once notification is solid.
 
-No instructions wall. No permissions screen (request notification permission after step 3 is dismissed).
-
-### 7. Backup and restore — 1 day
-JSON export/import is already built but gated to Pro (see fix above — move to free).
-
-Additional work:
-- Enable Android Auto Backup for Room via `backup_rules.xml` (include `dosetap.db`, exclude nothing)
-- Test full reinstall cycle: install → use → uninstall → reinstall → import JSON → verify history intact
-- Show "Import backup" prominently in onboarding if a backup file is detected on the device
-
-### 8. Calendar heatmap chart (Pro) — 1 day *(replaces current bar chart as the Pro stats feature)*
-Free tier: current streak + adherence %. That's all they need.
-Pro tier: a GitHub-style 30-day or 90-day grid.
-
-- Each day is a small square: green (taken), amber (taken late), red (missed), grey (no data / off-day)
-- Tap a day → shows the exact dose events for that day
-- This is the picture users show their psychiatrist
-- Much more informative than the 14-bar chart currently gated as Pro
-
-### 9. App icon + Play Console + Privacy policy — 1–2 days
-Blocking for launch regardless of features.
-
-- Design a real icon. Suggestion: a stylised pill with a small clock or checkmark. Not a generic capsule.
-- Play Console: create `dosetap_pro` one-time in-app purchase at €2.99, publish to internal testing, add test account emails
-- Privacy policy: short, honest, host on GitHub Pages if needed. Update URL in `strings.xml`.
-- Screenshots: minimum 2 phone screenshots for Play listing
-- `SCHEDULE_EXACT_ALARM` vs `USE_EXACT_ALARM`: declare `USE_EXACT_ALARM` in manifest (medical use case qualifies under Google policy — requires no runtime prompt and cannot be revoked by user)
+**Why "Anchor":** the name matters internally. The team (you) should think of this as the user's morning anchor — the first deliberate action of the day. Every design decision routes through "does this make the anchor stronger or weaker?"
 
 ---
 
-## Week 3 — Pro Features Worth Building
+## Week 1 — Foundation (Must Ship)
 
-### 10. Doctor visit report — PDF / share (Pro)
-One-tap summary for psychiatrist appointments. ADHD users cannot recall how last month went.
+### 1. Fix freemium gates — 1h
+Per section above. Flip flags in `FeatureFlag.kt`. Also flip effect-window and daily-reminder to free.
+
+### 2. Morning Anchor: persistent lock-screen notification — 2 days
+Per spec above. This is the single highest-leverage task in the whole plan.
+
+Acceptance criteria:
+- Notification visible on lock screen at all times after first dose is configured.
+- "Log dose" action works from lock screen on Android 11, 13, 14, 15 without unlock.
+- Updates within 200ms of dose log/undo via `NotificationManager.notify()` with stable ID.
+- Survives reboot (re-posted in `BootCompletedReceiver`).
+- Battery profile: no wake locks, no foreground service. AlarmManager + notification update only.
+
+### 3. Time-since-last-dose + next-available countdown — 3h
+v2 was right. Below the status chip:
+- If not taken: "💊 Not logged yet" + time of next scheduled dose.
+- If taken: "Taken 2h 14m ago at 9:02" + (if effect window set) "Wearing off in 1h 46m" or "Next dose at 13:00 — in 40 min."
+
+For IR users this is *the* answer to *the* question they open the app to ask.
+
+### 4. Phantom tap protection — 2h (Hard requirement, not optional)
+A 160dp button on a phone in a pocket *will* fire. Implement **press-and-hold 250ms** (not double-tap — double-tap is hostile to ADHD users who'll wonder if the first tap registered). Show a tiny radial progress fill during the hold so it's obvious feedback.
+
+Pair with the existing 8-second undo window. Both are needed: hold prevents phantom, undo catches the "wait, I already took it" case.
+
+### 5. Multi-medication home switcher — 1 day
+Store `selectedMedicationId: Long` in DataStore. `HomeViewModel` observes it. Top bar med name → bottom sheet picker. Per-med state isolated.
+
+Keep `observeFirst()` fallback for first-run.
+
+### 6. Remaining gating bugs — 1h
+- Follow-up cap enforcement
+- `SettingsViewModel.saveMedication` checks `maxMedications(isPro)` before insert
+- `AlarmScheduler` re-checks `FeatureFlag` on Pro downgrade (refund / chargeback)
+
+---
+
+## Week 2 — Onboarding, Trust, and Distribution Prep
+
+### 7. Onboarding (3 screens, no walls) — 1 day
+
+**Screen 1 — Pick your med.** Preset list with pre-filled durations:
+- Ritalin IR / methylphenidate IR — 4h
+- Ritalin LA / Medikinet CR / Equasym XL — 8h
+- Concerta — 12h
+- Adderall IR — 5h
+- Adderall XR — 8h
+- Vyvanse / Elvanse — 12h (mark 10–14h variable)
+- Strattera / atomoxetine — no acute window (non-stimulant, hide effect-window UI for this med)
+- Wellbutrin / bupropion — no acute window
+- Guanfacine / Intuniv — no acute window
+- "Other" — manual
+
+**Screen 2 — When do you usually take it?** Single time picker. Sets first alarm.
+
+**Screen 3 — Anchor it.** New screen, critical: *"What do you do every morning without fail?"* Options: ☕ Make coffee · 📱 Check phone · 🪥 Brush teeth · 🔔 Turn off alarm · Custom. Saved as a string shown in the notification: "💊 Take Ritalin — right after ☕ coffee."
+
+This is the habit-stacking primitive. It's free, it's one extra screen, and it does more for adherence than any Pro feature.
+
+> Disagreement with v2: v2 cut "habit stacking custom notification copy" as low-ROI. That's wrong if it's the default, not a power-user setting. The cue *is* the product. Make it the third onboarding screen.
+
+Notification permission requested **after** screen 3, with context: "We'll remind you right after your coffee."
+
+### 8. Backup, restore, and Auto Backup — 1 day
+- Export/import JSON (already free per gate fix).
+- Android Auto Backup via `backup_rules.xml` — include `dosetap.db`, exclude billing cache.
+- Test: install → use 7 days → uninstall → reinstall → restore → history intact.
+- Detect backup file in `Downloads/` on first run, surface "Restore from backup?" in onboarding.
+
+### 9. Sponsor-a-Friend — 1 day (NEW, replaces gift code APK workflow)
+
+**Problem with current gift codes:** SHA-256 hashes in APK = fixed pool at build time, can't gift after release without a new build, and the developer is rebuilding the APK every time he gifts to a new person. Doesn't scale, and the user side is a code-paste flow which is friction.
+
+**Solution: in-app sponsor flow.**
+- Pro users see a "Sponsor a friend" button in Settings (Pro tier benefit). One free Pro unlock to give away, per device, lifetime.
+- Tapping it generates a code locally (deterministic from a device-bound secret + a slot number — no backend), surfaces it with a "Share" sheet → "I gave you DoseTap Pro: ABC-123-XYZ".
+- Recipient pastes code in their Settings → unlocks Pro. Code is consumed in their DataStore; sponsor's slot is consumed in theirs.
+- Validation: codes verify against a checksum + a baked-in HMAC key. No backend.
+
+**For the developer's personal gifting (girlfriend, friends, beta testers):**
+- Ship a separate "developer master code" derived from the HMAC key, valid for N redemptions per device install. Document it in a private note. Realistic ceiling: **plan for ~20 personal gifts before this becomes annoying.** Beyond that, get a backend or accept that some friends pay €2.99.
+- Keep the existing `gift_codes.txt` SHA-256 system as a fallback for press / influencer gifts in batches.
+
+**Why this matters as a Pro feature:** "buy Pro, give Pro to one person" is a known +30–60% conversion lift in medical/wellness apps (MyFitnessPal, Headspace family flows). It also creates organic word-of-mouth: the sponsored friend tells two other ADHD friends, who buy. This is the *only* zero-backend referral mechanic that works.
+
+### 10. App icon, Play Console, privacy policy, screenshots — 1–2 days
+- Icon: pill silhouette + clock hand or checkmark. Hire a designer on Fiverr for €30 — your time is worth more. Do not ship a generic capsule.
+- Play Console: `dosetap_pro` SKU at €2.99, internal track, 5 test accounts.
+- Privacy policy: short, "your data never leaves your phone" front and center. GitHub Pages.
+- Screenshots: 5 phone screenshots (Play requires min 2, but 5 converts better). Required scenes: lock-screen notification, home with status chip, dose-just-logged confirmation, calendar heatmap (Pro teaser), doctor report (Pro teaser).
+- **Feature graphic** (1024×500) — required for Play. Plan for it.
+- Manifest: declare `USE_EXACT_ALARM` (medical/alarm category qualifies — no runtime prompt). Keep `SCHEDULE_EXACT_ALARM` as fallback on older targets.
+
+### 11. ASO copy — 4h (NEW)
+The Play listing is where 80% of conversion is won or lost. Write it deliberately:
+- **Title:** "DoseTap — ADHD Med Reminder"
+- **Short description (80 chars):** "One-tap med tracking for ADHD. No account, no ads, your data stays on your phone."
+- **Long description:** lead with the persistent-notification screenshot, lead the copy with "made by an ADHD developer for ADHD users," list features under headers (Daily, Safety, Insights). Search keywords: "ADHD," "stimulant," "Ritalin reminder," "Concerta tracker," "medication reminder ADHD."
+
+---
+
+## Week 3 — Pro Features That Earn the Price
+
+### 12. Calendar heatmap (Pro) — 1 day
+Replace the 14-bar chart. GitHub-style grid, 30/60/90-day toggle. Squares: green (taken on time), amber (late), red (missed), grey (off-day / no data). Tap day → event details.
+
+This is "the picture you show your psychiatrist." It must look that good.
+
+### 13. Doctor Visit Report (Pro) — 1–2 days
+**This is the single Pro feature that drives word-of-mouth from psychiatrists.** Build it carefully.
 
 Contents:
-- Medication name + dose (if stored)
-- Date range (last 30 / 60 / 90 days — picker)
-- Adherence % overall + by day-of-week
-- Average time of first dose
-- Missed doses count + which days
-- Trend: improving / stable / worsening
+- Patient name (optional, never required), date range, medication, dose strength (free text — never inferred).
+- Adherence: % overall, % on weekdays, % on weekends.
+- Time-of-first-dose distribution (chart): "usually 8:30am, range 7:50–10:15."
+- Missed-dose count + dates (not reasons — reasons are private).
+- Effect-window heatmap if logged.
+- **What this report does NOT include:** mood ratings, symptom subjective scores, "DoseTap recommends X." Psychiatrists distrust apps that diagnose. The report is data, not interpretation.
 
-Implementation: generate HTML → use `PrintManager` to "print to PDF" or share sheet. Avoid `android.graphics.pdf.PdfDocument` directly — produces ugly output.
+Implementation: HTML → `PrintManager` → PDF. Share sheet from there.
 
-### 11. Comedown / wear-off warning — 2h *(NEW)*
-An hour before the effect window ends, post a soft notification:
-"Your Ritalin will wear off around 5:00 PM — plan accordingly 🌙"
+**Distribution lever:** offer to email a PDF sample to ADHD psychiatrists you can find on LinkedIn / Twitter. "Built this for myself, would value 5 min of feedback." That's how you get the "psychiatrists recommend it" channel. Two warm intros are worth more than 1000 Play installs.
 
-This is uniquely valuable for stimulants. No other reminder app does this.
-- Scheduled when dose is logged, based on `durationMinutes`
-- Separate low-priority notification channel, no vibration
-- Can be disabled in settings
-- **Free tier** (safety-adjacent)
+### 14. Smart escalation reminders (Pro) — 1 day
++10 min: "Still haven't logged 👀". +25 min: "Last reminder." Stop. Two follow-ups is the cap — past that you're a nag, not a tool.
 
-### 12. "Skip tomorrow" one-tap — 2h *(NEW)*
-Off-days handle recurring skip patterns. But the real ADHD use case is "I'm not working Friday, skip it."
+Do not count as missed until end-of-day. Important: end-of-day must be **user-configurable** (default 3am next day for late-shift workers and night owls — extremely common in ADHD population). v2 didn't specify this; it matters.
 
-- Long-press the dose button (or overflow menu) → "Skip tomorrow"
-- Stores a one-off skip date in DataStore alongside `offDays`
-- `AlarmScheduler` checks this date before scheduling the next day's alarm
-- Shows a small badge on tomorrow's status: "📅 Skipped"
+### 15. Prescription-aware refill prediction (Pro) — 3h
+Pill count is free. The Pro upgrade: store Rx date + days supply + buffer (default 7 days). Calculate "book psych by" date. Fires one notification on that date. Done.
 
-### 13. Smart escalation reminders (Pro)
-If the dose time alarm fires and no dose is logged within 10 minutes:
-- +10 min: "Still haven't logged yet 👀"
-- +25 min: "Last reminder — did you take your meds?"
-- Stop. No more. Two follow-ups maximum or the user mutes the app.
-- Don't count as "missed" until the end-of-day boundary
+### 16. Comedown / wear-off warning (Free, moved from Pro) — 2h
+60 min before end of effect window: "Your Ritalin will wear off around 5:00 PM 🌙". Free tier. Safety-planning, not gamification.
 
-### 14. Dose notes with preset tags — 3h
-After logging, a small dismissible card appears beneath the undo banner:
-"Add a note?" → tag chips: `with food` · `late` · `forgot earlier` · `half dose` · `brand change` · custom text
+User-configurable: off / 30min / 60min lead time.
 
-Notes appear in history timeline. Useful for correlating side effects with timing.
-Free tier.
+### 17. "Skip tomorrow" one-tap (Free) — 2h
+Long-press dose button → "Skip tomorrow." One-off skip stored in DataStore. Tomorrow's status: "📅 Skipped — tap to undo."
 
-### 15. Controlled-substance refill reminder — 3h *(expanded from plan)*
-Beyond pill count, add prescription-aware tracking (Pro):
-- Store prescription date + days supply + "days needed to get new script" buffer
-- Auto-calculate "contact psychiatrist by" date (= runout date minus buffer)
-- Reminder fires on that date: "Time to book your prescription appointment — you have ~10 days left"
-- Respects the reality that controlled stimulants can't be auto-refilled
+### 18. Dose notes with preset tags (Free) — 3h
+Post-log card: "Add a note?" → chips: `with food` · `late` · `forgot earlier` · `half dose` · `brand change` · `crashed early` · `slept poorly`. Free text fallback.
+
+Surface notes in Doctor Report (Pro) as a "patterns" section: "Notes most often tagged: 'crashed early' (8x), 'with food' (12x)." That's clinically useful.
 
 ---
 
-## Technical Debt to Fix
+## Cut Entirely (with reasoning)
 
-### Undo timer timing bug
-`executeLogDose` uses `delay(WIDGET_UNDO_WINDOW_MILLIS)` inside `viewModelScope`. If `WhileSubscribed(5000)` tears down the flow while the user is backgrounded, the delay coroutine cancels and undo state may not clear. Fix: derive undo visibility from `System.currentTimeMillis() < lastTapTimeMillis + UNDO_WINDOW` rather than transient ViewModel state.
+- ~~Wear OS companion~~ — 2% of Android users, multi-week build.
+- ~~SMS caregiver mode~~ — `SEND_SMS` will get the app rejected. Use OS share sheet "share status" if anyone asks.
+- ~~Symptom 1–5 emoji rating~~ — abandoned after week 2 in every app that's tried it. Dose notes cover the use case.
+- ~~Weekly summary notification~~ — dismissed by ADHD users. Doctor Report on demand replaces it.
+- ~~"Lower weekend dose" patterns~~ — schema change, edge case. Off-days + skip-tomorrow handles 95%.
+- ~~Referral gift codes requiring backend~~ — replaced by Sponsor-a-Friend (no backend).
+- ~~Gamification of streaks~~ — Hard Rule 2.
 
-### `USE_EXACT_ALARM` vs `SCHEDULE_EXACT_ALARM`
-Replace `SCHEDULE_EXACT_ALARM` with `USE_EXACT_ALARM` in the manifest. The former requires user permission that can be revoked from Settings; the latter is granted by the system for apps in the medical/alarm category and cannot be revoked. Verify with `alarmManager.canScheduleExactAlarms()` and handle the rare false case gracefully.
+---
 
-### Alarm missing banner race condition
-`alarmMissingFlow` fires when `activeCount == 0` after alarms were active. There's a window during reschedule where count transiently hits 0 and the banner flickers. Add a 500ms debounce on the flow or only check after a settled state.
+## Technical Debt (must fix before launch)
+
+### Undo timer race
+`executeLogDose` uses `delay()` in `viewModelScope` with `WhileSubscribed(5000)` — undo state can desync if user backgrounds the app. Fix: derive undo from `System.currentTimeMillis() < lastTapTimeMillis + UNDO_WINDOW`, not transient state.
+
+### `USE_EXACT_ALARM` migration
+Replace `SCHEDULE_EXACT_ALARM`. Medical/alarm category qualifies. Verify with `alarmManager.canScheduleExactAlarms()`, fall back gracefully.
+
+### Alarm-missing banner flicker
+500ms debounce on `alarmMissingFlow`. Or check only after settled state.
 
 ### Gift codes in APK
-SHA-256 hashes ship in `res/raw/gift_codes.txt` — anyone with `apktool` can extract them. The hashes are one-way so the codes themselves aren't exposed, but an attacker can try common patterns. Mitigated by the device-local DataStore check (a code that's been redeemed on one device can't be redeemed again on that device). Acceptable for now; document the trade-off.
+Document the trade-off. Sponsor-a-Friend (section 9) replaces this for scale; SHA-256 list stays for press/batch gifts. Acceptable.
 
-### ProGuard keep rules
-Add to `proguard-rules.pro`:
+### ProGuard
 ```
 -keep class com.android.billingclient.** { *; }
 -keepclassmembers class com.dosetap.billing.** { *; }
+-keepclassmembers class com.dosetap.giftcodes.** { *; }
 ```
-Verify `gift_codes.txt` is not stripped as dead resource (mark it used in `GiftCodeManager`).
+Mark `gift_codes.txt` used so it isn't stripped.
 
-### Phantom tap protection *(NEW)*
-The 160dp dose button can be pocket-tapped. Options:
-- Require 200ms press-and-hold before registering (use `pointerInput` with `detectTapGestures` and a delay)
-- Or: double-tap within 1.5 seconds to confirm (first tap shows "Tap again to confirm", second tap logs)
-The undo window helps but only if the user notices. Add one of these before launch.
+### `AlarmScheduler.rescheduleAll` dispatcher
+Force `Dispatchers.IO`. Currently inherits `Main` from `viewModelScope`. With many alarms, blocks UI.
 
-### `AlarmScheduler.rescheduleAll` dispatch
-Verify it's running on `Dispatchers.IO`. It's called from `viewModelScope` which defaults to `Dispatchers.Main`. If there are many alarms, this blocks the UI thread.
+### Notification channel hygiene
+Three channels: `dose_alarms` (high), `dose_ambient` (low, silent — for the Anchor), `dose_warnings` (default, for comedown / late cutoff / refill). User-tunable individually.
 
 ---
 
-## Cut Entirely
+## Distribution & Passive Income Strategy
 
-These were in the original plan. Removing them:
+### Realistic numbers
+- Conversion: 3–5% is the medical-utility benchmark. At 1,000 installs and 4% = 40 conversions × €2.99 × 0.85 (Play cut) ≈ €100/mo at steady state.
+- This is not life-changing money at 1k installs. **The plan must be: get to 10k+ installs.** That's where €1k+/mo passive income lives.
 
-- ~~Wear OS companion~~ — tiny market, multi-week build, no retention impact
-- ~~SMS caregiver mode~~ — `SEND_SMS` is a restricted permission, Play will reject it. Replace with a "Share status" intent using the OS share sheet if requested.
-- ~~Referral gift codes / family pack~~ — needs a backend
-- ~~Habit stacking custom notification copy~~ — users skim notifications, low ROI
-- ~~"Lower weekend dose" / every-other-day patterns~~ — edge case, schema change; off-days already covers Mon–Fri
-- ~~Weekly summary notification~~ — ADHD users dismiss it; replaced by Doctor Report
-- ~~WorkManager fallback for weekly summary~~ — don't add infrastructure for a cut feature
-- ~~Symptom 1–5 emoji rating with note field~~ — used twice then abandoned; build only if Pro users ask. Keep dose notes (section 14) instead, which is simpler and more durable.
+### The three zero-cost distribution channels (in priority order)
 
----
+1. **r/ADHD and r/ADHDmemes posts** — a single well-written "I built this because I kept forgetting my meds" post can do 5k installs in 48h. Post when feature-complete, not before. Include the lock-screen notification screenshot first.
+2. **Psychiatrist warm-intro** — email 10 ADHD psychiatrists with the Doctor Report PDF and a 1-month Pro code. 2 will respond. 1 might mention it to patients. Long tail, durable.
+3. **ADHD TikTok / YouTube creators** — Hannah Choi, How To ADHD, etc. Send Pro codes + a 60-second demo video. Conversion rate of these creators' recommendations is brutal-high in this niche.
 
-## Copy / Tone Notes
+### Sponsor-a-Friend as growth loop
+Built per section 9. Every Pro purchase = 1 free Pro to a friend = ~30% of those friends will tell another ADHD friend (who pays). This is the only growth mechanic in the plan that compounds.
 
-- Replace "Drug holiday" with "Days off"
-- Replace "🚀" as effectiveness rating — that's stimulant drug slang
-- Keep clinical copy where it matters (refill, dose, warnings)
-- "💊" emoji is fine for the button — universally understood
-- Avoid gamification language around taking controlled medication
+### What NOT to do
+- No paid ads. Margin doesn't support it.
+- No subscriptions. One-time €2.99 is correct — matches user expectation for a utility and avoids the "another subscription?" rejection. Resist the urge to add a Pro+ tier in year 1.
+- No social features, no sharing of adherence data, no leaderboards. Hard Rule 2.
 
 ---
 
 ## Final Priority Order
 
-| # | Task | Effort | Tier |
-|---|------|--------|------|
-| 1 | Fix freemium gates (pill count, off-days, export, late cutoff → free) | 1h | - |
-| 2 | Persistent dose-state notification with Log action | 1–2d | Free |
-| 3 | Time-since-dose + next-dose-available countdown | 2h | Free |
-| 4 | Multi-medication home switcher (selectedMedicationId in DataStore) | 1d | Pro |
-| 5 | Remaining bugs (follow-up gate, medication cap, scheduler gating) | 1h | - |
-| 6 | Onboarding + medication preset library | 1d | Free |
-| 7 | Backup/restore tested end-to-end + Auto Backup for Room | 1d | Free |
-| 8 | Calendar heatmap (replaces 14-bar chart as Pro stats) | 1d | Pro |
-| 9 | App icon + Play Console + privacy policy + screenshots | 1–2d | - |
-| 10 | Comedown wear-off warning | 2h | Free |
-| 11 | "Skip tomorrow" one-tap | 2h | Free |
-| 12 | Doctor visit PDF report | 1d | Pro |
-| 13 | Smart escalation reminders | 1d | Pro |
-| 14 | Dose notes with preset tags | 3h | Free |
-| 15 | Controlled-substance refill reminder | 3h | Pro |
-| 16 | Phantom tap protection | 2h | Free |
-| 17 | Fix undo timer + alarm race condition + USE_EXACT_ALARM | 3h | - |
+| # | Task | Effort | Tier | Why this slot |
+|---|------|--------|------|---------------|
+| 1 | Fix freemium gates (incl. effect window + daily reminder → free) | 1h | — | Blocks launch ethics |
+| 2 | Morning Anchor: persistent lock-screen notification | 2d | Free | Single highest-leverage feature |
+| 3 | Time-since-dose + next-available countdown | 3h | Free | Answers the #1 question users open the app for |
+| 4 | Phantom tap protection (250ms hold) | 2h | Free | Ships harm if missing |
+| 5 | Multi-medication home switcher | 1d | — | Existing bug |
+| 6 | Remaining gating bugs | 1h | — | Existing bug |
+| 7 | Onboarding 3 screens incl. habit anchor | 1d | Free | The anchor screen IS the product |
+| 8 | Backup/restore + Auto Backup tested | 1d | Free | Trust + GDPR |
+| 9 | Sponsor-a-Friend (in-app code gen) | 1d | Pro | Growth loop + dev gifting |
+| 10 | App icon, Play Console, privacy policy, screenshots, feature graphic | 1–2d | — | Launch-blocking |
+| 11 | ASO listing copy | 4h | — | 80% of install conversion |
+| 12 | Calendar heatmap | 1d | Pro | The "show your psychiatrist" picture |
+| 13 | Doctor Visit PDF Report | 1–2d | Pro | The psychiatrist-recommendation lever |
+| 14 | Smart escalation reminders (configurable EoD) | 1d | Pro | Pro power feature |
+| 15 | Prescription-aware refill prediction | 3h | Pro | Pro power feature |
+| 16 | Comedown / wear-off warning | 2h | Free | Safety-adjacent |
+| 17 | Skip-tomorrow long-press | 2h | Free | Real ADHD use case |
+| 18 | Dose notes + preset tags | 3h | Free | Feeds Doctor Report |
+| 19 | Tech debt: undo timer, USE_EXACT_ALARM, alarm flicker, dispatchers, channels | 4h | — | Stability before launch |
+
+**Launch gate:** items 1–11 are v1.0. Items 12–19 are v1.1 (within 4 weeks of v1.0). Do not delay v1.0 launch to add v1.1 features — the Reddit post needs a stable app, not a complete one.
+
+---
+
+## Copy / Tone Final Rules
+
+- "Days off" not "Drug holiday"
+- No 🚀 emoji anywhere (stimulant slang)
+- 💊 for the button is fine
+- Streak number is small grey text, never red, never large
+- Missed dose copy: "No dose logged" — never "You missed your dose"
+- Late dose copy: "Logged late — that's fine" — never "You were late"
+- Comedown copy: "Wearing off around X — plan accordingly 🌙" — never "Crash incoming"
+- The word "fail," "broken," "lost" never appears in any user-facing string
+
+---
+
+## What Success Looks Like at 6 Months
+
+- 5,000+ installs
+- 4% Pro conversion (~200 conversions × €2.99 ≈ €500 lifetime, slow drip)
+- One psychiatrist or ADHD creator has publicly recommended it
+- The girlfriend and ~10 friends are using it daily on sponsored Pro
+- 4.5+ Play rating, with multiple reviews mentioning "the lock-screen notification" or "I show this to my psychiatrist"
+- Developer has shipped 2–3 small updates based on real feedback, nothing major
+
+If you hit all six, this becomes a €100–300/mo passive-income asset that helps real people. That's the target. Anything more is upside.
