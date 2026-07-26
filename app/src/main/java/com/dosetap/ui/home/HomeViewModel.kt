@@ -80,7 +80,6 @@ data class HomeUiState(
     val medications: List<Medication> = emptyList(),
     val todayEvents: List<DoseEvent> = emptyList(),
     val showNotificationBanner: Boolean = false,
-    val showAlarmMissingBanner: Boolean = false,
     val showReliabilityBanner: Boolean = false,
     val showTimezoneChangedBanner: Boolean = false,
     val isLoading: Boolean = true,
@@ -142,17 +141,6 @@ class HomeViewModel(
         }
     }
 
-    @OptIn(FlowPreview::class)
-    private val alarmMissingFlow = combine(
-        container.settingsRepository.alarmsWereActive,
-        container.settingsRepository.alarmBannerDismissed,
-        container.alarmDao.observeActiveCount(System.currentTimeMillis()),
-    ) { wasActive, dismissed, activeCount ->
-        wasActive && !dismissed && activeCount == 0
-    }
-        .distinctUntilChanged()
-        .debounce(500L)
-
     // Selected medication: first try DataStore selection, fall back to first
     private val selectedMedFlow = combine(
         container.settingsRepository.selectedMedicationId,
@@ -165,10 +153,9 @@ class HomeViewModel(
     private val baseStateFlow = combine(
         selectedMedFlow,
         container.medicationDao.observeAll(),
-        alarmMissingFlow,
         container.settingsRepository.lastTimezoneChangeMillis,
         container.settingsRepository.skipTomorrowDate,
-    ) { medication, allMeds, alarmMissing, lastTzChange, skipTomorrowDate ->
+    ) { medication, allMeds, lastTzChange, skipTomorrowDate ->
         val notificationsGranted = checkNotificationsGranted()
         val tzChangedRecently = lastTzChange > 0L &&
             (System.currentTimeMillis() - lastTzChange) < 24 * 60 * 60 * 1000L
@@ -195,7 +182,6 @@ class HomeViewModel(
             medication = medication,
             medications = allMeds,
             showNotificationBanner = !notificationsGranted,
-            showAlarmMissingBanner = alarmMissing,
             showReliabilityBanner = OemDetector.isKnownProblematic(),
             showTimezoneChangedBanner = tzChangedRecently,
             isLoading = false,

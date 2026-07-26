@@ -780,15 +780,17 @@ private fun PermissionsStep(
         ActivityResultContracts.RequestPermission()
     ) { granted -> notificationsGranted = granted }
 
-    val batteryOptimized = !BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
-
-    // Exact-alarm grant (Android 12+). Re-checked on resume so the card flips to "Allowed"
-    // when the user returns from the system settings screen.
+    // Both grants are re-checked on resume so the cards flip to their done-state the moment the
+    // user returns from the system settings screen.
+    var batteryOptimized by remember {
+        mutableStateOf(!BatteryOptimizationHelper.isIgnoringBatteryOptimization(context))
+    }
     var exactAlarmGranted by remember { mutableStateOf(ExactAlarmHelper.canScheduleExact(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                batteryOptimized = !BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
                 exactAlarmGranted = ExactAlarmHelper.canScheduleExact(context)
             }
         }

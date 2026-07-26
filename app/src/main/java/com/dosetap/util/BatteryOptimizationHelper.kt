@@ -41,9 +41,9 @@ object BatteryOptimizationHelper {
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            Log.e(TAG, "Could not open battery optimization settings via direct intent", e)
-            // Fall back to general battery settings
-            openGeneralBatterySettings(context)
+            Log.e(TAG, "Could not open battery optimization dialog; falling back to app settings", e)
+            // App-details settings always resolves; the user finds Battery → Unrestricted there.
+            openAppBatterySettings(context)
         }
     }
 

@@ -23,6 +23,14 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!--
+        Lets the "Battery exemption" prompt open the direct system dialog
+        (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS). Without it that dialog silently no-ops.
+        Justified: a medication alarm must survive background battery restrictions. Declared in
+        the Play Console permissions form as an alarm/reminder core use case.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
         Full-screen alarm UI (AlarmActivity) over the lock screen. Without this, setFullScreenIntent
         silently degrades to a heads-up notification on targetSdk 34+ (E-H5). Play auto-grants it to
         alarm/calendar apps; complete the Play Console full-screen-intent declaration at submission.

@@ -223,9 +223,10 @@ private fun NormalContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Header: emoji + med name + open arrow
+        // Header: tapping the whole row opens the app (big, obvious target). The body below
+        // stays a one-tap dose log.
         Row(
-            modifier = GlanceModifier.fillMaxWidth(),
+            modifier = GlanceModifier.fillMaxWidth().clickable(openAppAction),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text = "💊", style = TextStyle(fontSize = 18.sp))
@@ -241,12 +242,12 @@ private fun NormalContent(
                 maxLines = 1,
             )
             Text(
-                text = "↗",
+                text = "Open ↗",
                 style = TextStyle(
-                    color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 14.sp,
+                    color = GlanceTheme.colors.primary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
                 ),
-                modifier = GlanceModifier.clickable(openAppAction),
             )
         }
 

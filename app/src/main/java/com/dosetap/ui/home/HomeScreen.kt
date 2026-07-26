@@ -431,17 +431,6 @@ fun HomeScreen(
                     )
                 }
             }
-            if (uiState.showAlarmMissingBanner) {
-                item {
-                    ActionBanner(
-                        emoji = "⚡",
-                        message = "Alarms may have been stopped",
-                        actionLabel = "Reschedule",
-                        onAction = { viewModel.rescheduleAlarms() },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
-                }
-            }
             if (uiState.showTimezoneChangedBanner) {
                 item {
                     ActionBanner(
@@ -2131,6 +2120,9 @@ private fun BreatheSheet(onDismiss: () -> Unit) {
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.size(180.dp),
             ) {
+                // Theme-aware so it stays legible in both light and dark (was a fixed dark teal
+                // that vanished on a dark sheet).
+                val breatheColor = MaterialTheme.colorScheme.primary
                 Box(
                     modifier = Modifier
                         .size((140 * circleScale).dp)
@@ -2138,8 +2130,8 @@ private fun BreatheSheet(onDismiss: () -> Unit) {
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(
-                                    Color(0xFF006A6A).copy(alpha = 0.25f),
-                                    Color(0xFF006A6A).copy(alpha = 0.08f),
+                                    breatheColor.copy(alpha = 0.30f),
+                                    breatheColor.copy(alpha = 0.10f),
                                 ),
                             ),
                         ),
@@ -2149,13 +2141,13 @@ private fun BreatheSheet(onDismiss: () -> Unit) {
                         text = phases[phaseIndex].first,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF006A6A),
+                        color = breatheColor,
                     )
                     Text(
                         text = "$phaseSeconds",
                         style = MaterialTheme.typography.displaySmall,
                         fontWeight = FontWeight.Light,
-                        color = Color(0xFF006A6A),
+                        color = breatheColor,
                     )
                 }
             }
@@ -2302,7 +2294,7 @@ private fun QuicklistSheet(
                                 Text(
                                     text = if (done) "✓" else "○",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = if (done) Color(0xFF1565C0)
+                                    color = if (done) MaterialTheme.colorScheme.primary
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.Bold,
                                 )
