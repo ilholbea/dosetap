@@ -18,8 +18,9 @@ import androidx.core.view.WindowCompat
 @Composable
 fun AppTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color (Material You) on Android 12+
-    dynamicColor: Boolean = true,
+    // Dynamic color (Material You) is OFF by default: the app uses its own "Calm Focus" palette
+    // so it has a consistent, intentional identity instead of adopting each phone's wallpaper hues.
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
@@ -42,6 +43,7 @@ fun AppTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = AppShapes,
         content = content,
     )
 }

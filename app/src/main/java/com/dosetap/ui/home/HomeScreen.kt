@@ -890,10 +890,12 @@ private fun DoseHeroSection(
                         .scale(scale)
                         .clip(CircleShape)
                         .background(
+                            // The one focal element: a vivid indigo → deep-indigo gradient so the
+                            // eye lands here first (Calm Focus: single obvious action).
                             Brush.radialGradient(
                                 colors = listOf(
+                                    com.dosetap.ui.theme.BrandIndigo,
                                     MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                                 )
                             )
                         )
