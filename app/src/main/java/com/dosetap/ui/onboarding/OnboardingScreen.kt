@@ -52,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -72,7 +73,11 @@ import androidx.compose.ui.unit.sp
 import com.dosetap.DoseTapApp
 import com.dosetap.domain.model.Medication
 import com.dosetap.domain.model.MedicationPreset
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.dosetap.util.BatteryOptimizationHelper
+import com.dosetap.util.ExactAlarmHelper
 import com.dosetap.widget.DoseWidgetReceiver
 import kotlinx.coroutines.launch
 
@@ -777,6 +782,20 @@ private fun PermissionsStep(
 
     val batteryOptimized = !BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
 
+    // Exact-alarm grant (Android 12+). Re-checked on resume so the card flips to "Allowed"
+    // when the user returns from the system settings screen.
+    var exactAlarmGranted by remember { mutableStateOf(ExactAlarmHelper.canScheduleExact(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                exactAlarmGranted = ExactAlarmHelper.canScheduleExact(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val cueLine = if (!anchor.isNullOrBlank()) {
         "We'll remind you right after $anchor."
     } else {
@@ -893,6 +912,46 @@ private fun PermissionsStep(
                     }
                     if (!batteryOptimized) {
                         Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+
+            // Exact-alarm permission — only meaningful on Android 12+ (auto-granted below).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                Spacer(Modifier.height(12.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (exactAlarmGranted)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = LocalIndication.current,
+                        ) {
+                            if (!exactAlarmGranted) ExactAlarmHelper.openExactAlarmSettings(context)
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("⏰", fontSize = 20.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Exact alarms", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (exactAlarmGranted) "Allowed ✓"
+                                else "Let reminders fire at the exact minute, even in Doze. Tap to allow.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (exactAlarmGranted) {
+                            Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
             }
