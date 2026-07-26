@@ -202,6 +202,7 @@ fun SettingsScreen(
             onGiftCode = { code ->
                 when (val result = container.giftCodeManager.validate(code)) {
                     com.dosetap.billing.GiftCodeManager.CodeResult.DevGrant -> { viewModel.redeemDevGrant(); result }
+                    com.dosetap.billing.GiftCodeManager.CodeResult.PermanentGift -> { viewModel.redeemPermanentGift(); result }
                     com.dosetap.billing.GiftCodeManager.CodeResult.SponsorGift -> { viewModel.unlockProViaGiftCode(); result }
                     com.dosetap.billing.GiftCodeManager.CodeResult.Invalid -> null
                 }

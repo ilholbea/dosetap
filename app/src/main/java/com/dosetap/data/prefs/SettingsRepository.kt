@@ -148,6 +148,16 @@ class SettingsRepository(private val context: Context) {
         dataStore.edit { it[Keys.DEV_GRANT_UNLOCKED] = true }
     }
 
+    // ===== Permanent gift code (permanent Pro, works in release/Play builds) =====
+
+    val permanentGiftUnlocked: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.PERMANENT_GIFT_UNLOCKED] ?: false
+    }
+
+    suspend fun setPermanentGiftUnlocked() {
+        dataStore.edit { it[Keys.PERMANENT_GIFT_UNLOCKED] = true }
+    }
+
     // ===== Pause reminders =====
 
     val pausedUntilMillis: Flow<Long> = dataStore.data.map { prefs ->
@@ -405,6 +415,7 @@ class SettingsRepository(private val context: Context) {
         val TRIAL_SOURCE = stringPreferencesKey("trial_source")
         val TRIAL_EXPIRED_DISMISSED = booleanPreferencesKey("trial_expired_dismissed")
         val DEV_GRANT_UNLOCKED = booleanPreferencesKey("dev_grant_unlocked")
+        val PERMANENT_GIFT_UNLOCKED = booleanPreferencesKey("permanent_gift_unlocked")
         val PRO_ENTITLEMENT_CACHED = booleanPreferencesKey("pro_entitlement_cached")
         val PAUSED_UNTIL_MILLIS = longPreferencesKey("paused_until_millis")
         val CELEBRATIONS_ENABLED = booleanPreferencesKey("celebrations_enabled")

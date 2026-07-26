@@ -94,6 +94,12 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
                         }
                         result
                     }
+                    com.dosetap.billing.GiftCodeManager.CodeResult.PermanentGift -> {
+                        (context.applicationContext as com.dosetap.DoseTapApp).appScope.launch {
+                            container.settingsRepository.setPermanentGiftUnlocked()
+                        }
+                        result
+                    }
                     com.dosetap.billing.GiftCodeManager.CodeResult.SponsorGift -> {
                         (context.applicationContext as com.dosetap.DoseTapApp).appScope.launch {
                             container.settingsRepository.startTrial("gift")

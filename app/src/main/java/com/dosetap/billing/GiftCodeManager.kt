@@ -7,22 +7,28 @@ import java.security.MessageDigest
 /**
  * Validates gift codes and developer grant codes.
  *
- * Two code types:
- *  - [CodeResult.DevGrant]   — grants permanent Pro. Codes: DOSETAP-DEV-01 … DOSETAP-DEV-20.
- *                              **Debug builds only** — the hash list lives in the debug source
- *                              set (`src/debug/res/raw/dev_grant_codes.txt`) and is therefore
- *                              absent from the release APK, so the permanent-Pro backdoor cannot
- *                              be exercised in production (E-C3). The list is resolved at runtime
- *                              by name; when the resource is missing (release) the set is empty.
- *  - [CodeResult.SponsorGift] — starts a 14-day Pro trial. Hashes in res/raw/gift_codes.txt.
+ * Code types:
+ *  - [CodeResult.DevGrant]      — grants permanent Pro. Codes: DOSETAP-DEV-01 … DOSETAP-DEV-20.
+ *                                 **Debug builds only** — the hash list lives in the debug source
+ *                                 set (`src/debug/res/raw/dev_grant_codes.txt`), so the guessable
+ *                                 backdoor is absent from release (E-C3). Resolved at runtime by
+ *                                 name; when the resource is missing (release) the set is empty.
+ *  - [CodeResult.PermanentGift] — grants permanent Pro in **any** build (Play Store included).
+ *                                 High-entropy random codes; only their SHA-256 hashes ship, in
+ *                                 res/raw/premium_codes.txt. This is the "gift Pro to a friend"
+ *                                 flow. Because the codes are random, they can't be brute-forced
+ *                                 from the hashes; but a leaked code can't be revoked without an
+ *                                 app update (no backend — offline app). Keep the plaintext list
+ *                                 private.
+ *  - [CodeResult.SponsorGift]   — starts a 14-day Pro trial. Hashes in res/raw/gift_codes.txt.
  *
- * To generate a new dev grant code hash:
- *   echo -n "DOSETAP-DEV-21" | sha256sum
- * Paste the hash into src/debug/res/raw/dev_grant_codes.txt and rebuild a debug variant.
+ * To mint a new permanent gift code:
+ *   printf '%s' "DOSETAP-XXXXX-XXXXX" | sha256sum
+ * Paste the hash into res/raw/premium_codes.txt and rebuild. (Uppercase; validate() uppercases.)
  */
 class GiftCodeManager(private val context: Context) {
 
-    enum class CodeResult { DevGrant, SponsorGift, Invalid }
+    enum class CodeResult { DevGrant, PermanentGift, SponsorGift, Invalid }
 
     private val devGrantHashes: Set<String> by lazy {
         // Resolved by name so this compiles in the release variant, where the resource does not
@@ -37,17 +43,24 @@ class GiftCodeManager(private val context: Context) {
         }
     }
 
+    private val premiumHashes: Set<String> by lazy {
+        context.resources.openRawResource(R.raw.premium_codes)
+            .bufferedReader().readLines()
+            .map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    }
+
     private val giftHashes: Set<String> by lazy {
         context.resources.openRawResource(R.raw.gift_codes)
             .bufferedReader().readLines()
             .map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     }
 
-    /** Check what type of code was entered. Dev grants are checked first. */
+    /** Check what type of code was entered. Permanent grants are checked before the trial. */
     fun validate(code: String): CodeResult {
         val hash = sha256(code.trim().uppercase())
         return when {
             hash in devGrantHashes -> CodeResult.DevGrant
+            hash in premiumHashes -> CodeResult.PermanentGift
             hash in giftHashes -> CodeResult.SponsorGift
             else -> CodeResult.Invalid
         }

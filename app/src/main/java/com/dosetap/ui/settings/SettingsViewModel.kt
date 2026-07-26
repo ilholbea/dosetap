@@ -219,4 +219,8 @@ class SettingsViewModel(
     fun redeemDevGrant() {
         viewModelScope.launch { container.settingsRepository.setDevGrantUnlocked() }
     }
+
+    fun redeemPermanentGift() {
+        viewModelScope.launch { container.settingsRepository.setPermanentGiftUnlocked() }
+    }
 }

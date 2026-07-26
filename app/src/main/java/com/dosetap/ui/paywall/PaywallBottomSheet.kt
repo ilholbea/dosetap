@@ -302,6 +302,7 @@ fun PaywallBottomSheet(
                         onClick = {
                             when (onGiftCode(giftCodeText)) {
                                 com.dosetap.billing.GiftCodeManager.CodeResult.DevGrant -> showDevGrantSuccess = true
+                                com.dosetap.billing.GiftCodeManager.CodeResult.PermanentGift -> showDevGrantSuccess = true
                                 com.dosetap.billing.GiftCodeManager.CodeResult.SponsorGift -> showTrialSuccess = true
                                 else -> giftCodeError = true
                             }

@@ -100,17 +100,21 @@ class AppContainer(context: Context) {
 
     private val containerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** True when user has Pro via Play purchase, legacy gift code, active 14-day trial, or developer grant. */
+    /**
+     * True when user has Pro via Play purchase, legacy gift code, active 14-day trial, developer
+     * grant (debug), or a permanent gift code (release/Play).
+     */
     val isPro: StateFlow<Boolean> by lazy {
         combine(
             billingManager.isPro,
             settingsRepository.giftCodeUnlocked,
             settingsRepository.trialStartedAtMillis,
             settingsRepository.devGrantUnlocked,
-        ) { billing, legacy, trialStart, devGrant ->
+            settingsRepository.permanentGiftUnlocked,
+        ) { billing, legacy, trialStart, devGrant, permanentGift ->
             val trialActive = trialStart > 0L &&
                 System.currentTimeMillis() - trialStart < Constants.TRIAL_DURATION_MILLIS
-            billing || legacy || trialActive || devGrant
+            billing || legacy || trialActive || devGrant || permanentGift
         }.stateIn(containerScope, SharingStarted.Eagerly, false)
     }
 

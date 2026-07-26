@@ -392,6 +392,10 @@ class HomeViewModel(
         viewModelScope.launch { container.settingsRepository.setDevGrantUnlocked() }
     }
 
+    fun redeemPermanentGift() {
+        viewModelScope.launch { container.settingsRepository.setPermanentGiftUnlocked() }
+    }
+
     fun dismissTrialExpired() {
         viewModelScope.launch { container.settingsRepository.dismissTrialExpired() }
     }

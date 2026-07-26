@@ -20,3 +20,7 @@ TODO.md
 
 # Google Services
 google-services.json
+
+# Signing keystore (never commit)
+dosetap-release.keystore
+*.keystore
