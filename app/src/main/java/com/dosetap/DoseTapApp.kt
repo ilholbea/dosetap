@@ -26,6 +26,10 @@ class DoseTapApp : Application() {
         container = AppContainer(this)
         createNotificationChannels()
         postInitialAmbientNotification()
+        // Arm the weekly summary. Idempotent (fixed request code + FLAG_UPDATE_CURRENT), so it's
+        // safe to call every launch — this is what keeps the summary alive across reboots and
+        // updates, which the receiver's self-reschedule alone never bootstrapped (E-C5).
+        container.alarmScheduler.scheduleWeeklySummary()
         Log.i(TAG, "DoseTap application started")
     }
 
@@ -74,18 +78,29 @@ class DoseTapApp : Application() {
             setShowBadge(false)
         }
 
+        // Channel 4: Focus Timer — default importance, subtle chime when session ends
+        val focusChannel = NotificationChannel(
+            Constants.NOTIFICATION_CHANNEL_FOCUS,
+            Constants.NOTIFICATION_CHANNEL_FOCUS_NAME,
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Alerts when a focus or break timer ends"
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0L, 200L, 100L, 200L)
+            setShowBadge(false)
+        }
+
         nm.createNotificationChannel(alarmChannel)
         nm.createNotificationChannel(ambientChannel)
         nm.createNotificationChannel(warningsChannel)
+        nm.createNotificationChannel(focusChannel)
         Log.d(TAG, "Notification channels created/verified")
     }
 
     private fun postInitialAmbientNotification() {
         appScope.launch(Dispatchers.IO) {
             try {
-                val medication = container.medicationDao.getFirst() ?: return@launch
-                val lastDose = container.doseEventDao.getLastConfirmedDose(medication.id)
-                container.ambientNotificationManager.update(medication, lastDose)
+                container.refreshAmbient()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to post initial ambient notification", e)
             }

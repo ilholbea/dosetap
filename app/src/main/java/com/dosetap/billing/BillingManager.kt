@@ -12,16 +12,20 @@ import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.QueryPurchasesParams
 import com.android.billingclient.api.acknowledgePurchase
 import com.android.billingclient.api.queryProductDetails
 import com.android.billingclient.api.queryPurchasesAsync
+import com.dosetap.data.prefs.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val TAG = "BillingManager"
@@ -29,22 +33,42 @@ private const val TAG = "BillingManager"
 /** One-time in-app product ID — must match Play Console exactly. */
 const val PRODUCT_ID_PRO = "dosetap_pro"
 
-class BillingManager(private val context: Context) : PurchasesUpdatedListener {
+/** Cap on the exponential reconnect backoff after a billing-service disconnect. */
+private const val MAX_RECONNECT_DELAY_MILLIS = 60_000L
+
+class BillingManager(
+    private val context: Context,
+    private val settingsRepository: SettingsRepository,
+) : PurchasesUpdatedListener {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // Seeded false, then immediately overwritten from the DataStore cache so a paying user
+    // who is offline on cold start is treated as Pro until a *successful* query says otherwise.
     private val _isPro = MutableStateFlow(false)
     val isPro: StateFlow<Boolean> = _isPro.asStateFlow()
+
+    /** Reconnect attempt counter for exponential backoff; reset on a successful setup. */
+    private var reconnectAttempts = 0
 
     private val _productDetails = MutableStateFlow<ProductDetails?>(null)
     val productDetails: StateFlow<ProductDetails?> = _productDetails.asStateFlow()
 
     private val billingClient: BillingClient = BillingClient.newBuilder(context)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
         .build()
 
     init {
+        // Seed entitlement from the persisted cache before billing connects, so an offline
+        // cold start doesn't flash the paywall at a paying user (E-C2).
+        scope.launch {
+            val cached = settingsRepository.proEntitlementCached.first()
+            if (cached) {
+                _isPro.value = true
+                Log.d(TAG, "Seeded isPro=true from cache")
+            }
+        }
         connect()
     }
 
@@ -53,6 +77,7 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
             override fun onBillingSetupFinished(result: BillingResult) {
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                     Log.d(TAG, "Billing connected")
+                    reconnectAttempts = 0
                     scope.launch {
                         queryPurchases()
                         queryProductDetails()
@@ -63,7 +88,18 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
             }
 
             override fun onBillingServiceDisconnected() {
-                Log.w(TAG, "Billing disconnected — will retry on next use")
+                // Reconnect with exponential backoff (1s, 2s, 4s … capped). Entitlement stays
+                // at its cached value in the meantime — we never downgrade without a live query.
+                val delayMillis = minOf(
+                    1000L shl reconnectAttempts.coerceAtMost(6),
+                    MAX_RECONNECT_DELAY_MILLIS,
+                )
+                reconnectAttempts++
+                Log.w(TAG, "Billing disconnected — reconnecting in ${delayMillis}ms (attempt $reconnectAttempts)")
+                scope.launch {
+                    delay(delayMillis)
+                    connect()
+                }
             }
         })
     }
@@ -78,10 +114,16 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
                 purchase.products.contains(PRODUCT_ID_PRO) &&
                     purchase.purchaseState == Purchase.PurchaseState.PURCHASED
             }
+            // A *successful* query is the single source of truth: it may upgrade or downgrade,
+            // and it persists the result so future offline starts read the right value.
             _isPro.value = hasPro
+            settingsRepository.setProEntitlementCached(hasPro)
             Log.d(TAG, "queryPurchases: isPro=$hasPro (${result.purchasesList.size} purchases)")
             // Acknowledge any unacknowledged purchases
             result.purchasesList.forEach { maybeAcknowledge(it) }
+        } else {
+            // Failed/unreachable query must never downgrade a paying user — leave cached value intact.
+            Log.w(TAG, "queryPurchases failed: ${result.billingResult.debugMessage} — keeping cached entitlement")
         }
     }
 
@@ -133,6 +175,7 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
                             purchase.purchaseState == Purchase.PurchaseState.PURCHASED
                         ) {
                             _isPro.value = true
+                            settingsRepository.setProEntitlementCached(true)
                             Log.i(TAG, "Pro purchase confirmed")
                         }
                     }

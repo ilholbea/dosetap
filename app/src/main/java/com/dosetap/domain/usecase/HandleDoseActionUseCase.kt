@@ -45,16 +45,19 @@ class HandleDoseActionUseCase(
         doseEventDao.update(event.copy(action = action, actionedAt = nowMillis))
         Log.i(TAG, "DoseEvent $doseEventId updated to $action")
 
+        // Any response to the reminder cancels the escalation re-nudge chain (Spec #2).
+        // For SNOOZED the snoozed follow-up re-arms a fresh chain when it fires.
+        alarmScheduler.cancelEscalation(event.medicationId)
+
         if (action == DoseAction.SNOOZED) {
             val medication = medicationDao.getById(event.medicationId)
             if (medication != null) {
                 val snoozeTriggerAt = nowMillis + Constants.SNOOZE_DURATION_MILLIS
-                // Unique tapId for snooze to avoid colliding with original tap's request codes
-                val snoozeTapId = event.sourceTapId * 1000L + (nowMillis % 1000L)
-                alarmScheduler.scheduleFollowUps(
-                    tapId = snoozeTapId,
-                    medication = medication.copy(followUps = listOf(0)),
-                    baseTimeMillis = snoozeTriggerAt,
+                // Re-ping under the original tap so the remaining follow-up chain survives (E-H1).
+                alarmScheduler.scheduleSnooze(
+                    tapId = event.sourceTapId,
+                    medication = medication,
+                    triggerAtMillis = snoozeTriggerAt,
                 )
                 Log.d(TAG, "Snooze alarm scheduled at $snoozeTriggerAt")
             } else {

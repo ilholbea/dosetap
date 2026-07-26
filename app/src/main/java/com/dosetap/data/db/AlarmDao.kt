@@ -35,6 +35,16 @@ interface AlarmDao {
     )
     suspend fun getAllActive(nowMillis: Long): List<ScheduledAlarm>
 
+    /** Active alarms whose trigger time has already passed — used for reboot catch-up (E-H2). */
+    @Query(
+        """
+        SELECT * FROM scheduled_alarms
+        WHERE isCancelled = 0 AND triggerAtMillis <= :nowMillis
+        ORDER BY triggerAtMillis ASC
+        """
+    )
+    suspend fun getOverdue(nowMillis: Long): List<ScheduledAlarm>
+
     @Query("UPDATE scheduled_alarms SET isCancelled = 1 WHERE tapId = :tapId")
     suspend fun cancelByTapId(tapId: Long)
 

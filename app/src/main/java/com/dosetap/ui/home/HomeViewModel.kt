@@ -14,11 +14,19 @@ import com.dosetap.domain.model.Medication
 import com.dosetap.util.Constants
 import com.dosetap.util.OemDetector
 import com.dosetap.util.TimeFormatter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -27,6 +35,34 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 
 private const val TAG = "HomeViewModel"
+
+enum class CelebrationKind { FIRST_OF_DAY, REGULAR }
+
+/**
+ * One dose-logged celebration. [message] is the rotating first-of-day line (null for regular logs);
+ * [bonus] flags the rare variable-reward upgrade (denser burst) that keeps celebrations from
+ * habituating.
+ */
+data class CelebrationEvent(
+    val kind: CelebrationKind,
+    val message: String? = null,
+    val bonus: Boolean = false,
+)
+
+/** Rotating first-of-day celebration copy (Spec #4). No repeat within the last 5 shown. */
+val FIRST_OF_DAY_MESSAGES = listOf(
+    "That's the hard part done.",
+    "Logged. Brain: fed.",
+    "Future-you says thanks.",
+    "Anchor held. 🎯",
+    "One tap, whole day steadier.",
+    "Done before you could forget. 💊",
+    "Momentum: kept.",
+    "Nice — that's today handled.",
+    "Locked in. 🔒",
+    "You showed up. That's the win.",
+    "Consider it checked off.",
+)
 
 enum class DoseWarningType {
     DOUBLE_DOSE,
@@ -61,6 +97,8 @@ data class HomeUiState(
     val isOffDay: Boolean = false,
     val pillsRemaining: Int? = null,
     val showRefillWarning: Boolean = false,
+    /** UTC millis of the "book your psych appointment by" date. Null if no Rx tracking set up or banner dismissed this session. */
+    val rxRefillByDateMillis: Long? = null,
     // Elapsed time display (updated by ticker)
     val elapsedSinceLastDoseMillis: Long? = null,
     val nextDoseAvailableAtMillis: Long? = null,
@@ -68,8 +106,18 @@ data class HomeUiState(
     val pendingNoteForTapId: Long? = null,
     // Skip tomorrow badge
     val tomorrowSkipped: Boolean = false,
-)
+    // Trial
+    val trialDaysRemaining: Int? = null,
+    val showTrialExpiredOnce: Boolean = false,
+    // Pause reminders
+    val pausedUntilMillis: Long = 0L,
+    // Breathing pill button — true when medication configured, no dose today, not off-day, not paused
+    val isDueWindow: Boolean = false,
+) {
+    val isPaused: Boolean get() = pausedUntilMillis > System.currentTimeMillis()
+}
 
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class HomeViewModel(
     private val container: AppContainer,
     private val context: Context,
@@ -83,6 +131,8 @@ class HomeViewModel(
     private val _pendingMedicationId = MutableStateFlow<Long?>(null)
     private val _pendingTapTimeMillis = MutableStateFlow<Long?>(null)
     private val _pendingNoteForTapId = MutableStateFlow<Long?>(null)
+    private val _celebrationEvent = MutableSharedFlow<CelebrationEvent>(extraBufferCapacity = 1)
+    val celebrationEvent: SharedFlow<CelebrationEvent> = _celebrationEvent.asSharedFlow()
 
     // 1-second ticker for elapsed time updates
     private val tickerFlow = flow {
@@ -92,6 +142,7 @@ class HomeViewModel(
         }
     }
 
+    @OptIn(FlowPreview::class)
     private val alarmMissingFlow = combine(
         container.settingsRepository.alarmsWereActive,
         container.settingsRepository.alarmBannerDismissed,
@@ -99,6 +150,8 @@ class HomeViewModel(
     ) { wasActive, dismissed, activeCount ->
         wasActive && !dismissed && activeCount == 0
     }
+        .distinctUntilChanged()
+        .debounce(500L)
 
     // Selected medication: first try DataStore selection, fall back to first
     private val selectedMedFlow = combine(
@@ -126,6 +179,18 @@ class HomeViewModel(
         val tomorrowStart = TimeFormatter.startOfDay(System.currentTimeMillis() + 24 * 60 * 60 * 1000L)
         val tomorrowSkipped = skipTomorrowDate == tomorrowStart
 
+        val dayMillis = 24L * 60 * 60 * 1000
+        val rxRefillByDateMillis: Long? = run {
+            val rxDate = medication?.prescriptionDate ?: return@run null
+            val supply = medication.daysSupply ?: return@run null
+            val buffer = medication.refillBufferDays
+            val now = System.currentTimeMillis()
+            val refillByMillis = rxDate + (supply - buffer).coerceAtLeast(0) * dayMillis
+            val daysUntilRefill = (refillByMillis - now) / dayMillis
+            // Show only when within the next `buffer * 2` days and not already past run-out.
+            if (daysUntilRefill in -1..(buffer * 2L)) refillByMillis else null
+        }
+
         HomeUiState(
             medication = medication,
             medications = allMeds,
@@ -137,14 +202,18 @@ class HomeViewModel(
             isOffDay = isOffDay,
             pillsRemaining = pillsRemaining,
             showRefillWarning = showRefillWarning,
+            rxRefillByDateMillis = rxRefillByDateMillis,
             tomorrowSkipped = tomorrowSkipped,
         )
     }
 
-    // Observe today's events for the selected medication
+    // Observe today's events scoped to the selected medication — prevents cross-medication bleed
     private val todayEventsFlow = selectedMedFlow.flatMapLatest { medication ->
         if (medication == null) flowOf(emptyList())
-        else container.doseEventDao.observeToday(TimeFormatter.startOfDay(System.currentTimeMillis()))
+        else container.doseEventDao.observeTodayForMedication(
+            medication.id,
+            TimeFormatter.startOfDay(System.currentTimeMillis()),
+        )
     }
 
     // Effect window and elapsed time (rebuilt each ticker tick)
@@ -165,11 +234,14 @@ class HomeViewModel(
         todayEventsFlow,
         timedStateFlow,
     ) { state, events, (effectWindow, elapsed, nextAvailable) ->
+        val hasDoseToday = events.any { it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN }
+        val isDueWindow = state.medication != null && !state.isOffDay && !hasDoseToday
         state.copy(
             todayEvents = events,
             effectWindowUntilMillis = effectWindow,
             elapsedSinceLastDoseMillis = elapsed,
             nextDoseAvailableAtMillis = nextAvailable,
+            isDueWindow = isDueWindow,
         )
     }
 
@@ -179,6 +251,22 @@ class HomeViewModel(
         tickerFlow,
     ) { tapTimeMillis, nowMillis ->
         tapTimeMillis != null && nowMillis < tapTimeMillis + Constants.WIDGET_UNDO_WINDOW_MILLIS
+    }
+
+    private val trialStateFlow = combine(
+        container.settingsRepository.trialStartedAtMillis,
+        container.settingsRepository.trialExpiredDismissed,
+        tickerFlow,
+    ) { trialStart, dismissed, now ->
+        if (trialStart <= 0L) {
+            Pair<Int?, Boolean>(null, false)
+        } else {
+            val elapsed = now - trialStart
+            val remaining = ((Constants.TRIAL_DURATION_MILLIS - elapsed) / (24 * 60 * 60 * 1000L)).toInt()
+            val daysRemaining = remaining.coerceAtLeast(0)
+            val expired = elapsed >= Constants.TRIAL_DURATION_MILLIS
+            Pair(daysRemaining, expired && !dismissed)
+        }
     }
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -211,6 +299,17 @@ class HomeViewModel(
     }.let { flow2 ->
         combine(flow2, _pendingNoteForTapId) { state, noteForTapId ->
             state.copy(pendingNoteForTapId = noteForTapId)
+        }
+    }.let { flow3 ->
+        combine(flow3, trialStateFlow) { state, (daysRemaining, showExpired) ->
+            state.copy(trialDaysRemaining = daysRemaining, showTrialExpiredOnce = showExpired)
+        }
+    }.let { flow4 ->
+        combine(flow4, container.settingsRepository.pausedUntilMillis) { state, pausedUntil ->
+            state.copy(
+                pausedUntilMillis = pausedUntil,
+                isDueWindow = state.isDueWindow && pausedUntil <= System.currentTimeMillis(),
+            )
         }
     }.stateIn(
         scope = viewModelScope,
@@ -256,9 +355,7 @@ class HomeViewModel(
         viewModelScope.launch {
             try {
                 container.logDoseUseCase.undo(tapId)
-                val med = uiState.value.medication
-                val lastDose = med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
-                container.ambientNotificationManager.update(med, lastDose)
+                container.refreshAmbient()
                 container.refreshWidgets()
                 _showUndoBanner.value = false
                 _lastTapId.value = null
@@ -287,12 +384,37 @@ class HomeViewModel(
 
     fun clearError() { _errorMessage.value = null }
 
-    fun unlockViaGiftCode() {
-        viewModelScope.launch { container.settingsRepository.setGiftCodeUnlocked(true) }
+    fun startTrial(source: String = "gift") {
+        viewModelScope.launch { container.settingsRepository.startTrial(source) }
+    }
+
+    fun redeemDevGrant() {
+        viewModelScope.launch { container.settingsRepository.setDevGrantUnlocked() }
+    }
+
+    fun dismissTrialExpired() {
+        viewModelScope.launch { container.settingsRepository.dismissTrialExpired() }
     }
 
     fun selectMedication(medicationId: Long) {
         viewModelScope.launch { container.settingsRepository.setSelectedMedicationId(medicationId) }
+    }
+
+    fun pauseReminders(hours: Int) {
+        viewModelScope.launch {
+            container.settingsRepository.setPausedUntilMillis(
+                System.currentTimeMillis() + hours * 60 * 60_000L
+            )
+        }
+    }
+
+    fun resumeReminders() {
+        viewModelScope.launch {
+            container.settingsRepository.setPausedUntilMillis(0L)
+            // Alarms that fired while paused were suppressed by AlarmReceiver — reschedule
+            // anything still pending so the user doesn't silently miss follow-up reminders.
+            container.alarmScheduler.rescheduleAll()
+        }
     }
 
     fun skipTomorrow() {
@@ -323,19 +445,64 @@ class HomeViewModel(
         _pendingNoteForTapId.value = null
     }
 
+    fun addBrainDumpItem(text: String) {
+        viewModelScope.launch { container.settingsRepository.addBrainDumpItem(text) }
+    }
+
+    fun removeBrainDumpItem(text: String) {
+        viewModelScope.launch { container.settingsRepository.removeBrainDumpItem(text) }
+    }
+
+    fun promoteBrainDumpItem(text: String) {
+        viewModelScope.launch { container.settingsRepository.promoteBrainDumpItemToQuicklist(text) }
+    }
+
+    fun clearBrainDump() {
+        viewModelScope.launch { container.settingsRepository.clearBrainDump() }
+    }
+
+    fun addQuickItem(text: String) {
+        viewModelScope.launch { container.settingsRepository.addQuickItem(text) }
+    }
+
+    fun toggleQuickItem(text: String) {
+        viewModelScope.launch { container.settingsRepository.toggleQuickItem(text) }
+    }
+
+    fun clearDoneQuickItems() {
+        viewModelScope.launch { container.settingsRepository.clearDoneQuickItems() }
+    }
+
+    fun clearQuickList() {
+        viewModelScope.launch { container.settingsRepository.clearQuickList() }
+    }
+
     // ===== Private helpers =====
 
     private suspend fun executeLogDose(medicationId: Long, tapTimeMillis: Long) {
         try {
+            // Determine if this is the first confirmed dose today (before inserting)
+            val todayStart = TimeFormatter.startOfDay(tapTimeMillis)
+            val existingToday = container.doseEventDao.getForMedicationSince(medicationId, todayStart)
+            val isFirstToday = existingToday.none { it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN }
+
             val tapId = container.logDoseUseCase.execute(medicationId, tapTimeMillis)
-            val med = container.medicationDao.getById(medicationId)
-            val lastDose = med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
-            container.ambientNotificationManager.update(med, lastDose)
+            container.refreshAmbient()
             container.refreshWidgets()
             _lastTapId.value = tapId
             _lastTapTimeMillis.value = tapTimeMillis
             _showUndoBanner.value = true
             _pendingNoteForTapId.value = tapId
+
+            // Variable-ratio reward (~1-in-7) — a rare upgraded burst resists habituation (Spec #4).
+            val bonus = kotlin.random.Random.nextInt(7) == 0
+            val event = if (isFirstToday) {
+                val idx = container.settingsRepository.pickCelebrationIndex(FIRST_OF_DAY_MESSAGES.size)
+                CelebrationEvent(CelebrationKind.FIRST_OF_DAY, FIRST_OF_DAY_MESSAGES[idx], bonus)
+            } else {
+                CelebrationEvent(CelebrationKind.REGULAR, null, bonus)
+            }
+            _celebrationEvent.tryEmit(event)
 
             // Wait for undo window, then clear — but derive visibility from time, not this delay
             delay(Constants.WIDGET_UNDO_WINDOW_MILLIS + 500L)

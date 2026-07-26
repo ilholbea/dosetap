@@ -15,6 +15,7 @@ import com.dosetap.util.TimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -40,18 +41,32 @@ class WeeklySummaryReceiver : BroadcastReceiver() {
                     .distinct()
                     .size
 
-                val bestStreak = computeBestStreak(
-                    days = allEvents
-                        .filter { it.action in takenActions }
-                        .map { TimeFormatter.startOfDay(it.actionedAt) }
-                        .distinct()
-                )
+                // Re-arm next week's summary regardless of whether we post one now.
+                container.alarmScheduler.scheduleWeeklySummary()
 
-                val streakEmoji = when {
-                    daysTaken == 7 -> "🔥"
-                    daysTaken >= 5 -> "✅"
-                    daysTaken >= 3 -> "📊"
-                    else -> "💊"
+                // A zero-dose week during a sanctioned break is silence, not a report card.
+                val pausedUntil = container.settingsRepository.pausedUntilMillis.first()
+                if (daysTaken == 0 && System.currentTimeMillis() < pausedUntil) {
+                    Log.i(TAG, "Weekly summary suppressed — paused break with no doses")
+                    return@launch
+                }
+
+                // Adaptive copy (Spec #9): never lead with a fraction, never lecture.
+                val emoji: String
+                val body: String
+                when {
+                    daysTaken >= 6 -> {
+                        emoji = "🔥"
+                        body = context.getString(com.dosetap.R.string.weekly_summary_strong, daysTaken)
+                    }
+                    daysTaken >= 3 -> {
+                        emoji = "✅"
+                        body = context.getString(com.dosetap.R.string.weekly_summary_steady, daysTaken)
+                    }
+                    else -> {
+                        emoji = "🌱"
+                        body = context.getString(com.dosetap.R.string.weekly_summary_rough)
+                    }
                 }
 
                 val openPi = PendingIntent.getActivity(
@@ -63,15 +78,11 @@ class WeeklySummaryReceiver : BroadcastReceiver() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 )
 
-                val bodyText = "This week: $daysTaken/7 days on time.\n" +
-                    "Best streak: $bestStreak days.\n" +
-                    "Consistency is key for ADHD medication — great work staying on track."
-
                 val notification = Notification.Builder(context, Constants.NOTIFICATION_CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                    .setContentTitle("Weekly Dose Summary $streakEmoji")
-                    .setContentText("This week: $daysTaken/7 days on time. Best streak: $bestStreak days.")
-                    .setStyle(Notification.BigTextStyle().bigText(bodyText))
+                    .setSmallIcon(com.dosetap.R.drawable.ic_notification_pill)
+                    .setContentTitle("${context.getString(com.dosetap.R.string.weekly_summary_title)} $emoji")
+                    .setContentText(body)
+                    .setStyle(Notification.BigTextStyle().bigText(body))
                     .setCategory(Notification.CATEGORY_STATUS)
                     .setAutoCancel(true)
                     .setContentIntent(openPi)
@@ -79,27 +90,12 @@ class WeeklySummaryReceiver : BroadcastReceiver() {
 
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 nm.notify(Constants.WEEKLY_SUMMARY_NOTIFICATION_ID, notification)
-                Log.i(TAG, "Weekly summary: $daysTaken/7 days, best streak $bestStreak")
-
-                container.alarmScheduler.scheduleWeeklySummary()
+                Log.i(TAG, "Weekly summary posted: $daysTaken/7 days")
             } catch (e: Exception) {
                 Log.e(TAG, "Error posting weekly summary", e)
             } finally {
                 pendingResult.finish()
             }
         }
-    }
-
-    private fun computeBestStreak(days: List<Long>): Int {
-        if (days.isEmpty()) return 0
-        val sorted = days.sorted()
-        val dayMillis = TimeUnit.DAYS.toMillis(1)
-        var best = 1
-        var current = 1
-        for (i in 1 until sorted.size) {
-            current = if (sorted[i] - sorted[i - 1] == dayMillis) current + 1 else 1
-            if (current > best) best = current
-        }
-        return best
     }
 }

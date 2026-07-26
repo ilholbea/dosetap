@@ -38,7 +38,20 @@ interface DoseEventDao {
     fun observeRecent(fromMillis: Long): Flow<List<DoseEvent>>
 
     /**
-     * Returns today's dose events for the home screen.
+     * Returns today's dose events for a specific medication — the correct scope for the home screen.
+     */
+    @Query(
+        """
+        SELECT * FROM dose_events
+        WHERE medicationId = :medicationId AND actionedAt >= :startOfDayMillis
+        ORDER BY actionedAt ASC
+        """
+    )
+    fun observeTodayForMedication(medicationId: Long, startOfDayMillis: Long): Flow<List<DoseEvent>>
+
+    /**
+     * Returns today's dose events for the home screen (all medications).
+     * Kept for backwards compatibility — prefer [observeTodayForMedication] in new code.
      */
     @Query(
         """

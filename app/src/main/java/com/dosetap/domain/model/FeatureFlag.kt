@@ -24,6 +24,7 @@ object FeatureFlag {
     fun canUseComedownWarning(@Suppress("UNUSED_PARAMETER") isPro: Boolean) = true
 
     // ===== Pro only =====
+    fun canUseAdhdTools(isPro: Boolean) = isPro
     fun canUseCustomAlarmTone(isPro: Boolean) = isPro
     fun canUseFullStatsChart(isPro: Boolean) = isPro
     fun canUseDoctorReport(isPro: Boolean) = isPro

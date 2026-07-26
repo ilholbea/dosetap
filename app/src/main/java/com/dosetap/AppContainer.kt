@@ -1,11 +1,14 @@
 package com.dosetap
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.util.Log
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.updateAppWidgetState
 import com.dosetap.alarm.AlarmScheduler
 import com.dosetap.widget.DoseWidget
+import com.dosetap.widget.DoseWidgetReceiver
 import com.dosetap.widget.LastDoseTimeKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +30,7 @@ import com.dosetap.billing.BillingManager
 import com.dosetap.billing.GiftCodeManager
 import com.dosetap.notification.AmbientNotificationManager
 import com.dosetap.util.BackupManager
+import com.dosetap.util.Constants
 
 /**
  * Manual DI container. Created once in [DoseTapApp] and held for the app lifetime.
@@ -88,7 +92,7 @@ class AppContainer(context: Context) {
     }
 
     // ===== Billing =====
-    val billingManager: BillingManager by lazy { BillingManager(appContext) }
+    val billingManager: BillingManager by lazy { BillingManager(appContext, settingsRepository) }
     val giftCodeManager: GiftCodeManager by lazy { GiftCodeManager(appContext) }
     val sponsorCodeManager: com.dosetap.billing.SponsorCodeManager by lazy {
         com.dosetap.billing.SponsorCodeManager(appContext)
@@ -96,10 +100,17 @@ class AppContainer(context: Context) {
 
     private val containerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** True when user has Pro via either Play purchase or a redeemed gift code. */
+    /** True when user has Pro via Play purchase, legacy gift code, active 14-day trial, or developer grant. */
     val isPro: StateFlow<Boolean> by lazy {
-        combine(billingManager.isPro, settingsRepository.giftCodeUnlocked) { billing, gift ->
-            billing || gift
+        combine(
+            billingManager.isPro,
+            settingsRepository.giftCodeUnlocked,
+            settingsRepository.trialStartedAtMillis,
+            settingsRepository.devGrantUnlocked,
+        ) { billing, legacy, trialStart, devGrant ->
+            val trialActive = trialStart > 0L &&
+                System.currentTimeMillis() - trialStart < Constants.TRIAL_DURATION_MILLIS
+            billing || legacy || trialActive || devGrant
         }.stateIn(containerScope, SharingStarted.Eagerly, false)
     }
 
@@ -107,27 +118,53 @@ class AppContainer(context: Context) {
         AmbientNotificationManager(appContext)
     }
 
+    /**
+     * Rebuilds the ambient notification for all medications (one line per med when >1 — Spec #7).
+     * Preferred over calling [AmbientNotificationManager.update] with a single med directly.
+     */
+    suspend fun refreshAmbient() {
+        val meds = medicationDao.getAll()
+        if (meds.isEmpty()) {
+            ambientNotificationManager.cancel()
+            return
+        }
+        val items = meds.map { it to doseEventDao.getLastConfirmedDose(it.id) }
+        ambientNotificationManager.updateAll(items)
+    }
+
     val backupManager: BackupManager by lazy {
         BackupManager(
+            database = database,
             medicationDao = medicationDao,
             doseEventDao = doseEventDao,
             alarmScheduler = alarmScheduler,
         )
     }
 
-    /** Pushes a fresh render to every DoseTap widget on the home screen. */
+    /** Pushes a fresh render to every DoseTap widget, writing each widget's own medication's last-dose time. */
     fun refreshWidgets() {
         (appContext as DoseTapApp).appScope.launch {
             try {
                 val glanceManager = GlanceAppWidgetManager(appContext)
                 val glanceIds = glanceManager.getGlanceIds(DoseWidget::class.java)
                 if (glanceIds.isEmpty()) return@launch
-                // Glance reuses a running session on update() and only re-reads DataStore,
-                // so we must write the current dose time to DataStore before calling update().
-                val medication = medicationDao.getFirst()
-                val lastDose = medication?.let { doseEventDao.getLastConfirmedDose(it.id) }
-                val lastDoseTimeMillis = lastDose?.actionedAt ?: 0L
-                glanceIds.forEach { glanceId ->
+
+                // Resolve rawId→GlanceId pairing (getGlanceIds internally calls getAppWidgetIds,
+                // so both lists are in the same order).
+                val rawIds = AppWidgetManager.getInstance(appContext)
+                    .getAppWidgetIds(ComponentName(appContext, DoseWidgetReceiver::class.java))
+                    .toList()
+                val rawToGlance = rawIds.zip(glanceIds).toMap()
+
+                rawToGlance.forEach { (rawId, glanceId) ->
+                    val configuredMedId = settingsRepository.getWidgetMedication(rawId)
+                    val medication = if (configuredMedId != -1L)
+                        medicationDao.getById(configuredMedId) ?: medicationDao.getFirst()
+                    else medicationDao.getFirst()
+
+                    val lastDose = medication?.let { doseEventDao.getLastConfirmedDose(it.id) }
+                    val lastDoseTimeMillis = lastDose?.actionedAt ?: 0L
+
                     updateAppWidgetState(appContext, glanceId) { prefs ->
                         prefs[LastDoseTimeKey] = lastDoseTimeMillis
                     }

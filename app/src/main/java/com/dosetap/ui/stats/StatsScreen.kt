@@ -1,5 +1,13 @@
 package com.dosetap.ui.stats
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,6 +50,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -76,12 +87,21 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
             onPurchase = { activity -> container.billingManager.launchPurchase(activity) },
             onRestore = { container.billingManager.restorePurchases() },
             onGiftCode = { code ->
-                if (container.giftCodeManager.isValid(code)) {
-                    (context.applicationContext as com.dosetap.DoseTapApp).appScope.launch {
-                        container.settingsRepository.setGiftCodeUnlocked(true)
+                when (val result = container.giftCodeManager.validate(code)) {
+                    com.dosetap.billing.GiftCodeManager.CodeResult.DevGrant -> {
+                        (context.applicationContext as com.dosetap.DoseTapApp).appScope.launch {
+                            container.settingsRepository.setDevGrantUnlocked()
+                        }
+                        result
                     }
-                    true
-                } else false
+                    com.dosetap.billing.GiftCodeManager.CodeResult.SponsorGift -> {
+                        (context.applicationContext as com.dosetap.DoseTapApp).appScope.launch {
+                            container.settingsRepository.startTrial("gift")
+                        }
+                        result
+                    }
+                    com.dosetap.billing.GiftCodeManager.CodeResult.Invalid -> null
+                }
             },
             onDismiss = { showPaywall = false },
         )
@@ -120,13 +140,19 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("No data yet", style = MaterialTheme.typography.titleMedium)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    ) {
+                        Text("📊", style = MaterialTheme.typography.headlineLarge)
+                        Spacer(Modifier.height(12.dp))
+                        Text("No stats yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Start logging doses to see your adherence stats here.",
+                            "Log 3 doses to unlock your first adherence stats. Tap the 💊 button on Home or your home-screen widget.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
                     }
                 }
@@ -137,8 +163,26 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    item { StreakCard(state) }
+                    // Milestone celebration card — shown once per milestone, session-local dismiss
+                    val milestoneStreak = state.milestoneStreak
+                    if (milestoneStreak != null) {
+                        item {
+                            var milestoneDismissed by remember(milestoneStreak) { mutableStateOf(false) }
+                            AnimatedVisibility(
+                                visible = !milestoneDismissed,
+                                enter = slideInVertically(tween(400)) + fadeIn(tween(400)),
+                                exit = slideOutVertically(tween(300)) + fadeOut(tween(300)),
+                            ) {
+                                MilestoneCard(
+                                    streakDays = milestoneStreak,
+                                    onDismiss = { milestoneDismissed = true },
+                                )
+                            }
+                        }
+                    }
+                    // Adherence leads — the surviving metric even when a streak resets (Spec #1).
                     item { AdherenceRow(state) }
+                    item { StreakCard(state) }
                     if (isPro) {
                         item { HeatmapCard(state.last90Days) }
                     } else {
@@ -151,58 +195,152 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
     }
 }
 
+private fun streakTint(days: Int): Color = when {
+    days >= 90 -> Color(0xFFFFB300)   // gold
+    days >= 30 -> Color(0xFFF4511E)   // deep orange
+    days >= 7  -> Color(0xFFFB8C00)   // orange
+    days >= 3  -> Color(0xFFFFB74D)   // soft amber
+    else       -> Color(0xFF4CAF50)   // calm green
+}
+
+private fun streakEmoji(days: Int): String = when {
+    days >= 90 -> "⭐"
+    days >= 7  -> "🔥"
+    else       -> "💊"
+}
+
 @Composable
 private fun StreakCard(state: StatsUiState) {
+    val count = state.currentStreak
+    val streakAlive = count > 0
+    val isPersonalBest = state.todayLogged && count >= 3 && count >= state.bestStreak
+    // Filled flame once today is logged; hollow (dimmed) while today is still open.
+    val flameAlpha = if (state.todayLogged) 1f else 0.5f
+
+    // Subtext follows the streak state (Spec #1). Never leads with a broken-chain framing.
+    val subtext: String? = when {
+        state.todayIsBridge -> "Off day — streak safe"
+        streakAlive && !state.todayLogged -> "Day $count — today still open"
+        !streakAlive && !state.todayLogged -> "Streak restarting — day 1 is today"
+        else -> null
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.EmojiEvents,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-            Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Current streak",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    text = "${state.currentStreak} day${if (state.currentStreak != 1) "s" else ""}",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AnimatedContent(
+                        targetState = count,
+                        transitionSpec = {
+                            slideInVertically { -it } + fadeIn() togetherWith
+                                slideOutVertically { it } + fadeOut()
+                        },
+                        label = "streak_count",
+                    ) { c ->
+                        Text(
+                            text = "${streakEmoji(c)} $c day${if (c != 1) "s" else ""}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.alpha(flameAlpha),
+                        )
+                    }
+                }
+                if (subtext != null) {
+                    Text(
+                        text = subtext,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state.graceApplied) {
+                    Text(
+                        text = "Streak bridged — one off day doesn't undo $count.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (isPersonalBest) {
+                    Text(
+                        text = "Personal best ✨",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = "Best",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     text = "${state.bestStreak}d",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MilestoneCard(streakDays: Int, onDismiss: () -> Unit) {
+    val copy = when (streakDays) {
+        7    -> "7 days strong 🔥"
+        30   -> "30-day milestone 🎯"
+        90   -> "90-day milestone 🏆"
+        180  -> "Half a year of consistency ✨"
+        365  -> "One full year ✨"
+        else -> "$streakDays days 🎉"
+    }
+    val tint = streakTint(streakDays)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = tint.copy(alpha = 0.15f)),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.EmojiEvents,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = copy,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = tint,
+                )
+                Text(
+                    text = "Keep going — your brain is building a real habit.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tint.copy(alpha = 0.75f),
+                )
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = tint.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -271,16 +409,25 @@ private fun AdherenceCard(label: String, value: Float, modifier: Modifier = Modi
 
 @Composable
 private fun HeatmapCard(days: List<DayStats>) {
-    // days is oldest-first (89 daysAgo .. 0 daysAgo = 90 entries)
-    // Pad to a full 13-week (91-day) grid: insert empty day at the start if needed
-    val paddedDays: List<DayStats?> = buildList {
-        repeat(91 - days.size) { add(null) }
-        addAll(days)
+    // days is oldest-first (0..89 daysAgo = up to 90 entries)
+    // Pad the start so the oldest entry lands on the correct day-of-week row (Sun = row 0).
+    val leadingPad = if (days.isEmpty()) 0 else {
+        val cal = java.util.Calendar.getInstance().apply {
+            timeInMillis = System.currentTimeMillis() - (days.size - 1).toLong() * 86_400_000L
+        }
+        cal.get(java.util.Calendar.DAY_OF_WEEK) - 1  // 1=Sun..7=Sat → 0-indexed
     }
-    // 13 columns (weeks), 7 rows (days Sun..Sat)
+    val paddedDays: List<DayStats?> = buildList {
+        repeat(leadingPad) { add(null) }
+        addAll(days)
+        // Fill trailing cells to complete the last column
+        val remainder = size % 7
+        if (remainder != 0) repeat(7 - remainder) { add(null) }
+    }
+    // Columns = weeks (oldest left), rows = days Sun..Sat
     val weekColumns = paddedDays.chunked(7)
 
-    val takenColor = Color(0xFF2E7D32)
+    val takenColor = MaterialTheme.colorScheme.secondary
     val missedColor = MaterialTheme.colorScheme.error
     val emptyColor = MaterialTheme.colorScheme.surfaceVariant
     val rowLabels = listOf("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")

@@ -36,9 +36,7 @@ class AmbientLogDoseReceiver : BroadcastReceiver() {
             try {
                 val container = (context.applicationContext as DoseTapApp).container
                 val tapId = container.logDoseUseCase.execute(medicationId, System.currentTimeMillis())
-                val medication = container.medicationDao.getById(medicationId)
-                val lastDose = medication?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
-                container.ambientNotificationManager.update(medication, lastDose)
+                container.refreshAmbient()
                 container.refreshWidgets()
                 Log.d(TAG, "Ambient log dose: tapId=$tapId medicationId=$medicationId")
                 Handler(Looper.getMainLooper()).post {

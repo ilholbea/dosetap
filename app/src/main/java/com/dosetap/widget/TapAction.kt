@@ -1,10 +1,13 @@
 package com.dosetap.widget
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.util.Log
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
@@ -17,8 +20,6 @@ private const val TAG = "TapAction"
 val LastTapTimeKey = longPreferencesKey("last_tap_time")
 val LastTapIdKey = longPreferencesKey("last_tap_id")
 val UndoVisibleUntilKey = longPreferencesKey("undo_visible_until")
-
-/** Stores the actual dose time for display in the undo banner (reactive via DataStore). */
 val LastDoseTimeKey = longPreferencesKey("last_dose_time")
 
 class TapAction : ActionCallback {
@@ -60,7 +61,19 @@ class TapAction : ActionCallback {
             return
         }
 
-        val medication = container.medicationDao.getFirst()
+        // Resolve medication via SettingsRepository (keyed by raw appWidgetId).
+        // This reverse-zip is safe: TapAction fires only for an active installed widget.
+        val rawIds = AppWidgetManager.getInstance(context)
+            .getAppWidgetIds(ComponentName(context, DoseWidgetReceiver::class.java))
+            .toList()
+        val glanceIds = GlanceAppWidgetManager(context).getGlanceIds(DoseWidget::class.java)
+        val rawId = rawIds.zip(glanceIds).find { (_, gId) -> gId == glanceId }?.first ?: -1
+        val configuredMedId = if (rawId != -1)
+            container.settingsRepository.getWidgetMedication(rawId)
+        else -1L
+        val medication = if (configuredMedId != -1L)
+            container.medicationDao.getById(configuredMedId) ?: container.medicationDao.getFirst()
+        else container.medicationDao.getFirst()
         if (medication == null) {
             Log.w(TAG, "Widget tapped but no medication found")
             return

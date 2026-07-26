@@ -50,6 +50,11 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun getWidgetMedication(widgetId: Int): Long {
+        val raw = dataStore.data.first()[Keys.WIDGET_MEDICATION_MAP] ?: return -1L
+        return parseWidgetMap(raw)[widgetId] ?: -1L
+    }
+
     suspend fun removeWidget(widgetId: Int) {
         dataStore.edit { prefs ->
             val current = parseWidgetMap(prefs[Keys.WIDGET_MEDICATION_MAP] ?: "")
@@ -117,6 +122,42 @@ class SettingsRepository(private val context: Context) {
         dataStore.edit { it[Keys.GIFT_CODE_UNLOCKED] = unlocked }
     }
 
+    // ===== Cached Pro entitlement (billing offline resilience) =====
+
+    /**
+     * Last known Pro entitlement from a *successful* Play Billing query, persisted so a
+     * paying user isn't shown a paywall on a cold start where billing is offline/slow.
+     * Only a successful query is allowed to write this (including writing `false`);
+     * a failed/unreachable query must never downgrade it. See [BillingManager].
+     */
+    val proEntitlementCached: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.PRO_ENTITLEMENT_CACHED] ?: false
+    }
+
+    suspend fun setProEntitlementCached(isPro: Boolean) {
+        dataStore.edit { it[Keys.PRO_ENTITLEMENT_CACHED] = isPro }
+    }
+
+    // ===== Developer grant (permanent Pro, issued by developer) =====
+
+    val devGrantUnlocked: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.DEV_GRANT_UNLOCKED] ?: false
+    }
+
+    suspend fun setDevGrantUnlocked() {
+        dataStore.edit { it[Keys.DEV_GRANT_UNLOCKED] = true }
+    }
+
+    // ===== Pause reminders =====
+
+    val pausedUntilMillis: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[Keys.PAUSED_UNTIL_MILLIS] ?: 0L
+    }
+
+    suspend fun setPausedUntilMillis(millis: Long) {
+        dataStore.edit { it[Keys.PAUSED_UNTIL_MILLIS] = millis }
+    }
+
     // ===== Sponsor-a-friend =====
 
     /** Number of sponsor gift slots used on this device (Pro users get 1). */
@@ -157,6 +198,172 @@ class SettingsRepository(private val context: Context) {
         return dataStore.data.map { it[Keys.SKIP_TOMORROW_DATE] ?: -1L }.first()
     }
 
+    // ===== 14-day trial (sponsor / gift code) =====
+
+    val trialStartedAtMillis: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[Keys.TRIAL_STARTED_AT_MILLIS] ?: 0L
+    }
+
+    val trialSource: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.TRIAL_SOURCE] ?: ""
+    }
+
+    val trialExpiredDismissed: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.TRIAL_EXPIRED_DISMISSED] ?: false
+    }
+
+    /** Starts a 14-day trial. Returns false if a trial was already used on this device. */
+    suspend fun startTrial(source: String): Boolean {
+        val existing = dataStore.data.first()[Keys.TRIAL_STARTED_AT_MILLIS] ?: 0L
+        if (existing > 0L) return false
+        dataStore.edit {
+            it[Keys.TRIAL_STARTED_AT_MILLIS] = System.currentTimeMillis()
+            it[Keys.TRIAL_SOURCE] = source
+            it[Keys.TRIAL_EXPIRED_DISMISSED] = false
+        }
+        return true
+    }
+
+    suspend fun dismissTrialExpired() {
+        dataStore.edit { it[Keys.TRIAL_EXPIRED_DISMISSED] = true }
+    }
+
+    // ===== Celebrations =====
+
+    val celebrationsEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.CELEBRATIONS_ENABLED] ?: true
+    }
+
+    suspend fun setCelebrationsEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.CELEBRATIONS_ENABLED] = enabled }
+    }
+
+    val lastCelebratedStreak: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[Keys.LAST_CELEBRATED_STREAK] ?: 0
+    }
+
+    suspend fun setLastCelebratedStreak(streak: Int) {
+        dataStore.edit { it[Keys.LAST_CELEBRATED_STREAK] = streak }
+    }
+
+    /**
+     * Picks a celebration-copy index for a pool of [poolSize] lines, avoiding the last 5 shown so
+     * the same message never repeats too soon. Records the choice in a small ring buffer.
+     */
+    suspend fun pickCelebrationIndex(poolSize: Int): Int {
+        if (poolSize <= 0) return 0
+        var chosen = 0
+        dataStore.edit { prefs ->
+            val recent = (prefs[Keys.CELEBRATION_RECENT] ?: "")
+                .split(",").mapNotNull { it.toIntOrNull() }
+            val candidates = (0 until poolSize).filter { it !in recent }
+            chosen = (if (candidates.isNotEmpty()) candidates else (0 until poolSize).toList()).random()
+            val updated = (recent + chosen).takeLast(5)
+            prefs[Keys.CELEBRATION_RECENT] = updated.joinToString(",")
+        }
+        return chosen
+    }
+
+    // ===== Brain Dump =====
+
+    val brainDumpItems: Flow<List<String>> = dataStore.data.map { prefs ->
+        val raw = prefs[Keys.BRAIN_DUMP] ?: ""
+        raw.split("\n").filter { it.isNotBlank() }
+    }
+
+    suspend fun addBrainDumpItem(text: String) {
+        dataStore.edit { prefs ->
+            val existing = (prefs[Keys.BRAIN_DUMP] ?: "").split("\n").filter { it.isNotBlank() }
+            val updated = (existing + text.replace("\n", " "))
+                .takeLast(com.dosetap.util.Constants.BRAIN_DUMP_MAX_ITEMS)
+            prefs[Keys.BRAIN_DUMP] = updated.joinToString("\n")
+        }
+    }
+
+    suspend fun removeBrainDumpItem(text: String) {
+        dataStore.edit { prefs ->
+            val existing = (prefs[Keys.BRAIN_DUMP] ?: "").split("\n").filter { it.isNotBlank() }
+            prefs[Keys.BRAIN_DUMP] = existing.filter { it != text }.joinToString("\n")
+        }
+    }
+
+    suspend fun clearBrainDump() {
+        dataStore.edit { it[Keys.BRAIN_DUMP] = "" }
+    }
+
+    /** Moves a brain-dump thought to the Quicklist in one edit (Spec #6). */
+    suspend fun promoteBrainDumpItemToQuicklist(text: String) {
+        dataStore.edit { prefs ->
+            val dump = (prefs[Keys.BRAIN_DUMP] ?: "").split("\n").filter { it.isNotBlank() }
+            prefs[Keys.BRAIN_DUMP] = dump.filter { it != text }.joinToString("\n")
+
+            val quick = prefs[Keys.QUICKLIST] ?: ""
+            val newLine = "0|${text.replace("\n", " ")}"
+            prefs[Keys.QUICKLIST] = if (quick.isBlank()) newLine else "$quick\n$newLine"
+        }
+    }
+
+    // ===== Quicklist =====
+
+    /** Each item is stored as "0|text" (todo) or "1|text" (done). */
+    val quicklistItems: Flow<List<Pair<String, Boolean>>> = dataStore.data.map { prefs ->
+        (prefs[Keys.QUICKLIST] ?: "").split("\n").filter { it.isNotBlank() }.map { line ->
+            val idx = line.indexOf('|')
+            if (idx > 0) Pair(line.substring(idx + 1), line[0] == '1') else Pair(line, false)
+        }
+    }
+
+    suspend fun addQuickItem(text: String) {
+        dataStore.edit { prefs ->
+            val existing = prefs[Keys.QUICKLIST] ?: ""
+            val newLine = "0|${text.replace("\n", " ")}"
+            prefs[Keys.QUICKLIST] = if (existing.isBlank()) newLine else "$existing\n$newLine"
+        }
+    }
+
+    suspend fun toggleQuickItem(text: String) {
+        dataStore.edit { prefs ->
+            val lines = (prefs[Keys.QUICKLIST] ?: "").split("\n").filter { it.isNotBlank() }
+            prefs[Keys.QUICKLIST] = lines.map { line ->
+                val idx = line.indexOf('|')
+                val lineText = if (idx > 0) line.substring(idx + 1) else line
+                if (lineText == text) {
+                    val done = idx > 0 && line[0] == '1'
+                    "${if (done) 0 else 1}|$lineText"
+                } else line
+            }.joinToString("\n")
+        }
+    }
+
+    suspend fun clearDoneQuickItems() {
+        dataStore.edit { prefs ->
+            val lines = (prefs[Keys.QUICKLIST] ?: "").split("\n").filter { it.isNotBlank() }
+            prefs[Keys.QUICKLIST] = lines.filter { it.startsWith("0|") || it.indexOf('|') < 0 }.joinToString("\n")
+        }
+    }
+
+    suspend fun clearQuickList() {
+        dataStore.edit { it[Keys.QUICKLIST] = "" }
+    }
+
+    // ===== Focus Timer sessions =====
+
+    val focusSessionsToday: Flow<Int> = dataStore.data.map { prefs ->
+        val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
+        val savedDay = prefs[Keys.FOCUS_SESSIONS_DAY] ?: 0L
+        if (savedDay == dayStart) prefs[Keys.FOCUS_SESSIONS_COUNT] ?: 0 else 0
+    }
+
+    suspend fun incrementFocusSessions() {
+        dataStore.edit { prefs ->
+            val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
+            val savedDay = prefs[Keys.FOCUS_SESSIONS_DAY] ?: 0L
+            val count = if (savedDay == dayStart) (prefs[Keys.FOCUS_SESSIONS_COUNT] ?: 0) + 1 else 1
+            prefs[Keys.FOCUS_SESSIONS_DAY] = dayStart
+            prefs[Keys.FOCUS_SESSIONS_COUNT] = count
+        }
+    }
+
     // ===== Clear all =====
 
     suspend fun clearAll() {
@@ -194,5 +401,18 @@ class SettingsRepository(private val context: Context) {
         val SPONSOR_SLOTS_USED = intPreferencesKey("sponsor_slots_used")
         val SELECTED_MEDICATION_ID = longPreferencesKey("selected_medication_id")
         val SKIP_TOMORROW_DATE = longPreferencesKey("skip_tomorrow_date")
+        val TRIAL_STARTED_AT_MILLIS = longPreferencesKey("trial_started_at_millis")
+        val TRIAL_SOURCE = stringPreferencesKey("trial_source")
+        val TRIAL_EXPIRED_DISMISSED = booleanPreferencesKey("trial_expired_dismissed")
+        val DEV_GRANT_UNLOCKED = booleanPreferencesKey("dev_grant_unlocked")
+        val PRO_ENTITLEMENT_CACHED = booleanPreferencesKey("pro_entitlement_cached")
+        val PAUSED_UNTIL_MILLIS = longPreferencesKey("paused_until_millis")
+        val CELEBRATIONS_ENABLED = booleanPreferencesKey("celebrations_enabled")
+        val LAST_CELEBRATED_STREAK = intPreferencesKey("last_celebrated_streak")
+        val CELEBRATION_RECENT = stringPreferencesKey("celebration_recent_indices")
+        val BRAIN_DUMP = stringPreferencesKey("brain_dump")
+        val FOCUS_SESSIONS_DAY = longPreferencesKey("focus_sessions_day")
+        val FOCUS_SESSIONS_COUNT = intPreferencesKey("focus_sessions_count")
+        val QUICKLIST = stringPreferencesKey("quicklist")
     }
 }

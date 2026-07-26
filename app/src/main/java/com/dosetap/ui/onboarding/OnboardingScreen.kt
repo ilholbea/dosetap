@@ -13,19 +13,27 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -34,24 +42,28 @@ import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,83 +71,136 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dosetap.DoseTapApp
 import com.dosetap.domain.model.Medication
+import com.dosetap.domain.model.MedicationPreset
+import com.dosetap.util.BatteryOptimizationHelper
 import com.dosetap.widget.DoseWidgetReceiver
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 private const val TAG = "OnboardingScreen"
-private const val TOTAL_STEPS = 4
 
-private data class MedPreset(
-    val label: String,
-    val durationMinutes: Int?,
-)
+/** Working draft of the medication the user is configuring through onboarding. */
+private data class OnboardingDraft(
+    val preset: MedicationPreset? = null,
+    val name: String = "",
+    val followUps: List<Int> = listOf(240, 480),
+    val durationMinutes: Int? = null,
+    val hasEffectWindow: Boolean = true,
+    val dailyReminderMinutes: Int? = null,
+    val anchor: String? = null,
+) {
+    fun toMedication(): Medication = Medication(
+        name = name.trim(),
+        followUps = followUps,
+        durationMinutes = durationMinutes,
+        dailyReminderMinutes = dailyReminderMinutes,
+        morningAnchor = anchor,
+    )
 
-private val MED_PRESETS = listOf(
-    MedPreset("Ritalin IR", 240),
-    MedPreset("Ritalin LA", 480),
-    MedPreset("Concerta", 720),
-    MedPreset("Adderall IR", 300),
-    MedPreset("Adderall XR", 480),
-    MedPreset("Vyvanse", 720),
-    MedPreset("Strattera", null),
-    MedPreset("Other", null),
-)
+    val isReady: Boolean get() = name.isNotBlank()
+}
 
 @Composable
 fun OnboardingScreen(onComplete: () -> Unit) {
-    var currentStep by remember { mutableIntStateOf(0) }
+    var step by remember { mutableIntStateOf(0) }
+    var draft by remember { mutableStateOf(OnboardingDraft()) }
     val context = LocalContext.current
     val container = (context.applicationContext as DoseTapApp).container
     val scope = rememberCoroutineScope()
 
-    var savedMedication by remember { mutableStateOf<Medication?>(null) }
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val json = context.contentResolver.openInputStream(uri)
+                        ?.bufferedReader()?.use { it.readText() }
+                    if (!json.isNullOrBlank()) {
+                        container.backupManager.importFromJson(json)
+                        container.settingsRepository.setOnboardingComplete(true)
+                        container.refreshAmbient()
+                        onComplete()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Restore from backup failed", e)
+                }
+            }
+        }
+    }
 
     AnimatedContent(
-        targetState = currentStep,
+        targetState = step,
         transitionSpec = {
             val dir = if (targetState > initialState) 1 else -1
             slideInHorizontally { it * dir } togetherWith slideOutHorizontally { -it * dir }
         },
         label = "onboarding_step",
-    ) { step ->
-        when (step) {
-            0 -> WelcomeStep(onNext = { currentStep = 1 })
-            1 -> PermissionsStep(onNext = { currentStep = 2 })
-            2 -> AddMedicationStep(
-                onNext = { medication ->
-                    savedMedication = medication
-                    currentStep = 3
-                }
+    ) { current ->
+        when (current) {
+            0 -> WelcomeStep(
+                onNext = { step = 1 },
+                onRestore = { restoreLauncher.launch(arrayOf("application/json", "*/*")) },
             )
-            3 -> PinWidgetStep(
+            1 -> PickMedStep(
+                draft = draft,
+                onBack = { step = 0 },
+                onNext = { updated ->
+                    draft = updated
+                    step = 2
+                },
+            )
+            2 -> UsualTimeStep(
+                draft = draft,
+                onBack = { step = 1 },
+                onNext = { updated ->
+                    draft = updated
+                    step = 3
+                },
+            )
+            3 -> AnchorStep(
+                draft = draft,
+                onBack = { step = 2 },
+                onNext = { updated ->
+                    draft = updated
+                    step = 4
+                },
+            )
+            4 -> PermissionsStep(
+                anchor = draft.anchor,
+                onNext = { step = 5 },
+            )
+            5 -> PinWidgetStep(
                 onComplete = {
                     scope.launch {
                         try {
-                            savedMedication?.let { container.medicationDao.insert(it) }
+                            if (draft.isReady) {
+                                container.medicationDao.insert(draft.toMedication())
+                            }
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to save medication during onboarding", e)
                         }
                         container.settingsRepository.setOnboardingComplete(true)
-                        val med = container.medicationDao.getFirst()
-                        if (med != null) {
-                            container.ambientNotificationManager.update(med, null)
-                        }
+                        container.refreshAmbient()
                         onComplete()
                     }
-                }
+                },
             )
         }
     }
 }
 
+// =========================================================================
+// Step 0 — Welcome
+// =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WelcomeStep(onNext: () -> Unit) {
+private fun WelcomeStep(onNext: () -> Unit, onRestore: () -> Unit) {
     Scaffold { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -143,42 +208,559 @@ private fun WelcomeStep(onNext: () -> Unit) {
             Text("💊", fontSize = 72.sp, textAlign = TextAlign.Center)
             Spacer(Modifier.height(24.dp))
             Text(
-                text = "DoseTap",
+                text = "DopaTap",
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "One tap. Never miss a dose.",
+                text = "One tap. Your data stays on your phone.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(32.dp))
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 ),
             ) {
                 Text(
-                    text = "DoseTap is a reminder tool, not a medical device. It does not provide medical advice and is not a substitute for consulting your doctor.",
+                    text = "DopaTap is a reminder tool, not a medical device. It does not provide medical advice and is not a substitute for consulting your doctor.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(16.dp),
                     textAlign = TextAlign.Center,
                 )
             }
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(40.dp))
             Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) {
                 Text("Get started")
+            }
+            Spacer(Modifier.height(12.dp))
+            // Restore from backup — prominent card so returning users don't miss it
+            Card(
+                onClick = onRestore,
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("📦", fontSize = 24.sp)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Switching from another device?",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "Tap to restore history from a backup file",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
+                }
             }
         }
     }
 }
 
+// =========================================================================
+private fun formatFollowupLabel(minutes: Int): String = when {
+    minutes < 60 -> "${minutes}m"
+    minutes % 60 == 0 -> "${minutes / 60}h"
+    else -> "${minutes / 60}h ${minutes % 60}m"
+}
+
+// Step 1 — Pick Med (preset list)
+// =========================================================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PermissionsStep(onNext: () -> Unit) {
+private fun PickMedStep(
+    draft: OnboardingDraft,
+    onBack: () -> Unit,
+    onNext: (OnboardingDraft) -> Unit,
+) {
+    var selected by remember { mutableStateOf(draft.preset) }
+    var customName by remember { mutableStateOf(if (draft.preset == null) draft.name else "") }
+    val customFollowUps = remember { mutableStateListOf(*(draft.followUps.toTypedArray())) }
+    val isOther = selected == null && customName.isNotBlank()
+    val scope = rememberCoroutineScope()
+    val bringCustomFieldIntoView = remember { BringIntoViewRequester() }
+
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .imePadding()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Spacer(Modifier.height(24.dp))
+            Text(
+                text = "Which medication?",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Pick one to pre-fill the timings, or type your own.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(20.dp))
+
+            MedicationPreset.ALL.forEach { preset ->
+                PresetRow(
+                    preset = preset,
+                    selected = selected == preset,
+                    onClick = {
+                        selected = preset
+                        customName = ""
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Or type something else",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = customName,
+                onValueChange = {
+                    customName = it
+                    if (it.isNotBlank()) selected = null
+                },
+                placeholder = { Text("e.g. Focalin XR 10mg") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bringIntoViewRequester(bringCustomFieldIntoView)
+                    .onFocusChanged { fs ->
+                        if (fs.isFocused) scope.launch { bringCustomFieldIntoView.bringIntoView() }
+                    },
+                singleLine = true,
+            )
+
+            // Follow-up configurator — only shown for custom (non-preset) entries
+            if (isOther) {
+                Spacer(Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text(
+                            "Follow-up reminders",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "Nudges after you log — how long after?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (customFollowUps.size < 4) {
+                        TextButton(onClick = {
+                            val last = customFollowUps.lastOrNull() ?: 180
+                            customFollowUps.add((last + 60).coerceAtMost(720))
+                        }) {
+                            Text("+ Add")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                if (customFollowUps.isEmpty()) {
+                    Text(
+                        "No follow-ups — just the initial dose log.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        customFollowUps.forEachIndexed { index, minutes ->
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "Reminder ${index + 1}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    // − button
+                                    TextButton(
+                                        onClick = {
+                                            val stepped = (minutes - 30).coerceAtLeast(30)
+                                            customFollowUps[index] = stepped
+                                        },
+                                        enabled = minutes > 30,
+                                    ) { Text("−", style = MaterialTheme.typography.titleMedium) }
+
+                                    // Time display
+                                    Text(
+                                        text = "+${formatFollowupLabel(minutes)}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 4.dp),
+                                    )
+
+                                    // + button
+                                    TextButton(
+                                        onClick = {
+                                            val stepped = (minutes + 30).coerceAtMost(720)
+                                            customFollowUps[index] = stepped
+                                        },
+                                        enabled = minutes < 720,
+                                    ) { Text("+", style = MaterialTheme.typography.titleMedium) }
+
+                                    // Remove
+                                    TextButton(onClick = { customFollowUps.removeAt(index) }) {
+                                        Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onBack) { Text("Back") }
+                Spacer(Modifier.weight(1f))
+                Button(
+                    enabled = selected != null || isOther,
+                    onClick = {
+                        val finalPreset = selected
+                        val updated = if (finalPreset != null) {
+                            draft.copy(
+                                preset = finalPreset,
+                                name = finalPreset.label,
+                                followUps = finalPreset.followUps,
+                                durationMinutes = finalPreset.durationMinutes,
+                                hasEffectWindow = finalPreset.hasEffectWindow,
+                            )
+                        } else {
+                            draft.copy(
+                                preset = null,
+                                name = customName.trim(),
+                                followUps = customFollowUps.toList(),
+                                durationMinutes = null,
+                                hasEffectWindow = true,
+                            )
+                        }
+                        onNext(updated)
+                    },
+                ) {
+                    Text("Continue")
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun PresetRow(
+    preset: MedicationPreset,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val borderColor = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val bgColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+    else MaterialTheme.colorScheme.surfaceVariant
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(bgColor)
+            .border(width = 2.dp, color = borderColor, shape = RoundedCornerShape(12.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = preset.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = preset.durationMinutes?.let { mins ->
+                        "≈ ${mins / 60}h effect window"
+                    } ?: "Non-stimulant — no acute window",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (preset.followUps.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = buildString {
+                            append("${preset.followUps.size} follow-up${if (preset.followUps.size > 1) "s" else ""}: ")
+                            append(preset.followUps.joinToString(" · ") { mins ->
+                                if (mins % 60 == 0) "+${mins / 60}h" else "+${mins / 60}h ${mins % 60}m"
+                            })
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                }
+            }
+            if (selected) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+// =========================================================================
+// Step 2 — Usual time
+// =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UsualTimeStep(
+    draft: OnboardingDraft,
+    onBack: () -> Unit,
+    onNext: (OnboardingDraft) -> Unit,
+) {
+    val initial = draft.dailyReminderMinutes ?: (8 * 60)
+    val timePickerState = rememberTimePickerState(
+        initialHour = initial / 60,
+        initialMinute = initial % 60,
+        is24Hour = android.text.format.DateFormat.is24HourFormat(LocalContext.current),
+    )
+
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(24.dp))
+            Text(
+                text = "When do you usually take it?",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "We'll send a gentle nudge if you haven't logged by then.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(24.dp))
+
+            TimePicker(state = timePickerState)
+
+            Spacer(Modifier.height(24.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onBack) { Text("Back") }
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = {
+                        val mins = timePickerState.hour * 60 + timePickerState.minute
+                        onNext(draft.copy(dailyReminderMinutes = mins))
+                    },
+                ) {
+                    Text("Continue")
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+// =========================================================================
+// Step 3 — Morning Anchor (habit-stacking primitive)
+// =========================================================================
+private data class AnchorOption(val emoji: String, val label: String, val cue: String)
+
+private val ANCHOR_OPTIONS = listOf(
+    AnchorOption("☕", "Coffee", "☕ coffee"),
+    AnchorOption("📱", "Phone unlock", "📱 phone unlock"),
+    AnchorOption("🪥", "Brushing teeth", "🪥 brushing teeth"),
+    AnchorOption("🔔", "Turning alarm off", "🔔 alarm off"),
+)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AnchorStep(
+    draft: OnboardingDraft,
+    onBack: () -> Unit,
+    onNext: (OnboardingDraft) -> Unit,
+) {
+    var selectedCue by remember { mutableStateOf(draft.anchor) }
+    var customCue by remember { mutableStateOf("") }
+    val presetCues = ANCHOR_OPTIONS.map { it.cue }.toSet()
+    val isCustom = selectedCue != null && selectedCue !in presetCues
+    val scope = rememberCoroutineScope()
+    val bringCustomFieldIntoView = remember { BringIntoViewRequester() }
+
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .imePadding()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Spacer(Modifier.height(24.dp))
+            Text(
+                text = "Anchor your dose",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "What do you do every morning without fail? We'll remind you right after that — pairing a new habit with an existing one is the trick that actually works.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(20.dp))
+
+            ANCHOR_OPTIONS.forEach { opt ->
+                AnchorRow(
+                    option = opt,
+                    selected = selectedCue == opt.cue,
+                    onClick = { selectedCue = opt.cue },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Or something else",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = if (isCustom) selectedCue.orEmpty() else customCue,
+                onValueChange = {
+                    customCue = it
+                    selectedCue = it.ifBlank { null }
+                },
+                placeholder = { Text("e.g. after I feed the dog") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bringIntoViewRequester(bringCustomFieldIntoView)
+                    .onFocusChanged { fs ->
+                        if (fs.isFocused) scope.launch { bringCustomFieldIntoView.bringIntoView() }
+                    },
+                singleLine = true,
+            )
+
+            Spacer(Modifier.height(24.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onBack) { Text("Back") }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { onNext(draft.copy(anchor = null)) }) { Text("Skip") }
+                Button(
+                    enabled = !selectedCue.isNullOrBlank(),
+                    onClick = { onNext(draft.copy(anchor = selectedCue?.trim())) },
+                ) {
+                    Text("Continue")
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun AnchorRow(
+    option: AnchorOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val borderColor = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val bgColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+    else MaterialTheme.colorScheme.surfaceVariant
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(bgColor)
+            .border(width = 2.dp, color = borderColor, shape = RoundedCornerShape(12.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(option.emoji, fontSize = 24.sp)
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = option.label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            if (selected) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+// =========================================================================
+// Step 4 — Permissions (after Anchor, so we can name the cue in the ask)
+// =========================================================================
+@Composable
+private fun PermissionsStep(
+    anchor: String?,
+    onNext: () -> Unit,
+) {
     val context = LocalContext.current
     var notificationsGranted by remember {
         mutableStateOf(
@@ -193,6 +775,14 @@ private fun PermissionsStep(onNext: () -> Unit) {
         ActivityResultContracts.RequestPermission()
     ) { granted -> notificationsGranted = granted }
 
+    val batteryOptimized = !BatteryOptimizationHelper.isIgnoringBatteryOptimization(context)
+
+    val cueLine = if (!anchor.isNullOrBlank()) {
+        "We'll remind you right after $anchor."
+    } else {
+        "We'll remind you at the time you chose."
+    }
+
     Scaffold { innerPadding ->
         Column(
             modifier = Modifier
@@ -202,7 +792,7 @@ private fun PermissionsStep(onNext: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(24.dp))
             Icon(
                 imageVector = Icons.Filled.NotificationsActive,
                 contentDescription = null,
@@ -211,19 +801,19 @@ private fun PermissionsStep(onNext: () -> Unit) {
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "Allow notifications",
+                text = "Allow reminders",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "DoseTap shows a quiet status on your lock screen at all times, plus an alarm when it's time to take your medication.",
+                text = "$cueLine Two quick taps make sure the reminder fires even when your phone is asleep.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(24.dp))
 
             Card(
                 colors = CardDefaults.cardColors(
@@ -267,128 +857,65 @@ private fun PermissionsStep(onNext: () -> Unit) {
                 }
             }
 
-            Spacer(Modifier.height(48.dp))
-            Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) {
-                Text("Continue")
-            }
-        }
-    }
-}
+            Spacer(Modifier.height(12.dp))
 
-@Composable
-private fun AddMedicationStep(onNext: (Medication) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var followUp1Hours by remember { mutableFloatStateOf(4f) }
-    var followUp2Hours by remember { mutableFloatStateOf(8f) }
-    var selectedPreset by remember { mutableStateOf<MedPreset?>(null) }
-    var durationMinutes by remember { mutableStateOf<Int?>(null) }
-
-    Scaffold { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Spacer(Modifier.height(32.dp))
-            Text(
-                text = "Add your medication",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Quick-fill or type manually — you can change this anytime.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(16.dp))
-
-            // Quick-fill preset chips
-            Row(
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (!batteryOptimized)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = LocalIndication.current,
+                    ) {
+                        if (batteryOptimized) {
+                            BatteryOptimizationHelper.openBatteryOptimizationSettings(context)
+                        }
+                    }
             ) {
-                MED_PRESETS.forEach { preset ->
-                    FilterChip(
-                        selected = preset == selectedPreset,
-                        onClick = {
-                            selectedPreset = preset
-                            if (preset.label != "Other") {
-                                name = preset.label
-                            }
-                            durationMinutes = preset.durationMinutes
-                        },
-                        label = { Text(preset.label, style = MaterialTheme.typography.labelMedium) },
-                    )
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🔋", fontSize = 20.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Battery exemption", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (!batteryOptimized) "Done ✓"
+                            else "Some phones stop apps in the background. Tap to allow DoseTap to keep its alarms running.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (!batteryOptimized) {
+                        Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Medication name") },
-                placeholder = { Text("e.g. Ritalin 10mg") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-
-            Spacer(Modifier.height(24.dp))
-            Text(
-                text = "First reminder: ${followUp1Hours.roundToInt()}h after dose",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Slider(
-                value = followUp1Hours,
-                onValueChange = { followUp1Hours = it },
-                valueRange = 1f..8f,
-                steps = 6,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Second reminder: ${followUp2Hours.roundToInt()}h after dose",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Slider(
-                value = followUp2Hours,
-                onValueChange = { followUp2Hours = it },
-                valueRange = 2f..12f,
-                steps = 9,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
             Spacer(Modifier.height(32.dp))
-            Button(
-                onClick = {
-                    val trimmed = name.trim()
-                    if (trimmed.isBlank()) return@Button
-                    onNext(
-                        Medication(
-                            name = trimmed,
-                            followUps = listOf(
-                                followUp1Hours.roundToInt() * 60,
-                                followUp2Hours.roundToInt() * 60,
-                            ),
-                            durationMinutes = durationMinutes,
-                        )
-                    )
-                },
-                enabled = name.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+            Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) {
                 Text("Continue")
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onNext) {
+                Text(
+                    "Skip for now",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
 
+// =========================================================================
+// Step 5 — Pin Widget
+// =========================================================================
 @Composable
 private fun PinWidgetStep(onComplete: () -> Unit) {
     val context = LocalContext.current

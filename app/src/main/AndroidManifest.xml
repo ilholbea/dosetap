@@ -6,10 +6,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
-        USE_EXACT_ALARM (not SCHEDULE_EXACT_ALARM) — granted at install, no user prompt required.
-        Valid use case: DoseTap IS a medication alarm clock. Documented for Play Console review.
+        SCHEDULE_EXACT_ALARM — the broadly-accepted permission for exact reminders (E-H3). On
+        Android 12 it's auto-granted (revocable); on 13+ the user grants it via a just-in-time
+        prompt (ACTION_REQUEST_SCHEDULE_EXACT_ALARM, surfaced as a Home banner). If unavailable,
+        AlarmScheduler.setExact falls back to an inexact alarm rather than failing.
     -->
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Reschedule alarms after device reboot (critical — system drops alarms on reboot) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -19,6 +21,13 @@
 
     <!-- Wake the screen to show AlarmActivity over lock screen -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!--
+        Full-screen alarm UI (AlarmActivity) over the lock screen. Without this, setFullScreenIntent
+        silently degrades to a heads-up notification on targetSdk 34+ (E-H5). Play auto-grants it to
+        alarm/calendar apps; complete the Play Console full-screen-intent declaration at submission.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- NOTE: No INTERNET permission. Enforced by CI lint check. All data is local. -->
 
@@ -102,6 +111,16 @@
         <!-- Handles wear-off warning alarm -->
         <receiver
             android:name=".alarm.WearOffWarningReceiver"
+            android:exported="false" />
+
+        <!-- Smart escalation: re-posts a reminder as a re-nudge if the user hasn't engaged -->
+        <receiver
+            android:name=".alarm.EscalationReceiver"
+            android:exported="false" />
+
+        <!-- Fires a notification when a Focus Timer session ends -->
+        <receiver
+            android:name=".alarm.FocusAlarmReceiver"
             android:exported="false" />
 
         <!--

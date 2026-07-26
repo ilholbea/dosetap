@@ -6,21 +6,20 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.net.Uri
 import android.os.PowerManager
 import android.util.Log
-import com.dosetap.AlarmActivity
 import com.dosetap.AppContainer
 import com.dosetap.DoseTapApp
 import com.dosetap.MainActivity
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
+import com.dosetap.domain.model.FeatureFlag
 import com.dosetap.util.Constants
 import com.dosetap.util.TimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val TAG = "AlarmReceiver"
@@ -88,6 +87,18 @@ class AlarmReceiver : BroadcastReceiver() {
         followUpIndex: Int,
     ) {
         val nowMillis = System.currentTimeMillis()
+
+        // Respect pause — suppress notification silently, clean up DB alarm
+        val pausedUntil = container.settingsRepository.pausedUntilMillis.first()
+        if (nowMillis < pausedUntil) {
+            Log.d(TAG, "Reminders paused until $pausedUntil — suppressing alarm tapId=$tapId")
+            val pausedAlarm = if (tapId != -1L)
+                container.alarmDao.getActiveByTapId(tapId).find { it.followUpIndex == followUpIndex }
+            else null
+            if (pausedAlarm != null) container.alarmDao.cancelById(pausedAlarm.id)
+            return
+        }
+
         val medication = container.medicationDao.getById(medicationId)
 
         if (medication == null) {
@@ -117,89 +128,39 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val notificationId = buildNotificationId(medicationId, followUpIndex)
 
-        val takenIntent = DoseActionReceiver.buildIntent(
-            context, Constants.ACTION_DOSE_TAKEN, doseEventId, notificationId, tapId
+        val notification = DoseReminderNotification.build(
+            context = context,
+            medication = medication,
+            doseEventId = doseEventId,
+            tapId = tapId,
+            notificationId = notificationId,
+            bodyText = medication.name,
         )
-        val snoozeIntent = DoseActionReceiver.buildIntent(
-            context, Constants.ACTION_DOSE_SNOOZED, doseEventId, notificationId, tapId
-        ).also {
-            it.putExtra(Constants.EXTRA_MEDICATION_ID, medicationId)
-        }
-        val skipIntent = DoseActionReceiver.buildIntent(
-            context, Constants.ACTION_DOSE_SKIPPED, doseEventId, notificationId, tapId
-        )
-
-        val takenPi = PendingIntent.getBroadcast(
-            context, notificationId * 10 + 1, takenIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val snoozePi = PendingIntent.getBroadcast(
-            context, notificationId * 10 + 2,
-            snoozeIntent.also { it.putExtra(Constants.EXTRA_MEDICATION_ID, medicationId) },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val skipPi = PendingIntent.getBroadcast(
-            context, notificationId * 10 + 3, skipIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        // Full-screen intent → AlarmActivity (shown over lock screen)
-        val alarmActivityIntent = Intent(context, AlarmActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra(Constants.EXTRA_DOSE_EVENT_ID, doseEventId)
-            putExtra(Constants.EXTRA_MEDICATION_ID, medicationId)
-            putExtra(Constants.EXTRA_TAP_ID, tapId)
-        }
-        val fullScreenPi = PendingIntent.getActivity(
-            context, notificationId,
-            alarmActivityIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val soundUri = medication.soundUri?.let { Uri.parse(it) }
-            ?: android.provider.Settings.System.DEFAULT_ALARM_ALERT_URI
-
-        val notification = Notification.Builder(context, Constants.NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle(context.getString(com.dosetap.R.string.alarm_title))
-            .setContentText(medication.name)
-            .setCategory(Notification.CATEGORY_ALARM)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setFullScreenIntent(fullScreenPi, true)
-            .setContentIntent(fullScreenPi)
-            .addAction(
-                Notification.Action.Builder(
-                    null,
-                    context.getString(com.dosetap.R.string.alarm_taken),
-                    takenPi
-                ).build()
-            )
-            .addAction(
-                Notification.Action.Builder(
-                    null,
-                    context.getString(com.dosetap.R.string.alarm_snooze),
-                    snoozePi
-                ).build()
-            )
-            .addAction(
-                Notification.Action.Builder(
-                    null,
-                    context.getString(com.dosetap.R.string.alarm_skip),
-                    skipPi
-                ).build()
-            )
-            .build()
 
         val notificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(notificationId, notification)
 
+        // Safety net: re-assert the remaining follow-ups so a later reminder in the chain still
+        // fires even if the OS dropped it after this one (the "2nd alarm didn't show" report).
+        if (tapId != -1L) container.alarmScheduler.reassertChain(tapId, followUpIndex)
+
+        // Smart escalation (Pro): if the user doesn't engage, re-nudge at +10 and +25 min.
+        // Real follow-ups only (test alarms use tapId = -1). Cancelled the instant any dose
+        // log or action arrives; guarded again at fire time (paused / already-logged / Pro).
+        if (tapId != -1L && FeatureFlag.canUseSmartEscalation(container.isPro.first())) {
+            container.alarmScheduler.scheduleEscalation(
+                medicationId = medicationId,
+                tapId = tapId,
+                followUpIndex = followUpIndex,
+                doseEventId = doseEventId,
+                originalFiredAt = nowMillis,
+            )
+        }
+
         container.refreshWidgets()
         // Update ambient notification to show no-dose-yet state after alarm fires
-        val lastDose = container.doseEventDao.getLastConfirmedDose(medicationId)
-        container.ambientNotificationManager.update(medication, lastDose)
+        container.refreshAmbient()
         Log.d(TAG, "Notification posted: id=$notificationId for medication=${medication.name}")
     }
 
@@ -222,7 +183,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             val notification = Notification.Builder(context, Constants.NOTIFICATION_CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setSmallIcon(com.dosetap.R.drawable.ic_notification_pill)
                 .setContentTitle("Time for ${medication.name}")
                 .setContentText("You haven't logged today's dose yet.")
                 .setCategory(Notification.CATEGORY_REMINDER)

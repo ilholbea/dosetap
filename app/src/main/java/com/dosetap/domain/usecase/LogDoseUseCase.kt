@@ -79,6 +79,9 @@ class LogDoseUseCase(
         // Schedule wear-off warning (free, safety-adjacent)
         alarmScheduler.scheduleWearOffWarning(tapEventId, medication, tapTimeMillis)
 
+        // A dose from any surface cancels any in-flight escalation re-nudges (Spec #2).
+        alarmScheduler.cancelEscalation(medicationId)
+
         Log.i(TAG, "Dose logged: tapId=$tapEventId medicationId=$medicationId at $tapTimeMillis")
         return tapEventId
     }
@@ -93,6 +96,7 @@ class LogDoseUseCase(
      */
     suspend fun undo(tapId: Long) {
         alarmScheduler.cancelFollowUps(tapId)
+        alarmScheduler.cancelWearOffWarning(tapId)
         doseEventDao.deleteById(tapId)
         Log.i(TAG, "Dose undone: tapId=$tapId")
     }

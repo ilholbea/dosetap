@@ -8,6 +8,7 @@ import com.dosetap.util.TimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -31,6 +32,14 @@ data class StatsUiState(
     val last14Days: List<DayStats> = emptyList(),
     val last90Days: List<DayStats> = emptyList(),
     val hasAnyData: Boolean = false,
+    /** Non-null when a new milestone has just been reached this session. */
+    val milestoneStreak: Int? = null,
+    /** True once today has a confirmed dose. Drives the filled-vs-hollow flame. */
+    val todayLogged: Boolean = false,
+    /** True when today is an off-day / skip / paused day — a bridge, not a break. */
+    val todayIsBridge: Boolean = false,
+    /** True when a grace day is currently bridging a single-day gap in the live streak. */
+    val graceApplied: Boolean = false,
 )
 
 class StatsViewModel(private val container: AppContainer) : ViewModel() {
@@ -66,41 +75,95 @@ class StatsViewModel(private val container: AppContainer) : ViewModel() {
         val eventsByDay: Map<Long, List<com.dosetap.domain.model.DoseEvent>> =
             allEvents.groupBy { TimeFormatter.startOfDay(it.actionedAt) }
 
+        // ===== App-sanctioned absences (bridges — neither increment nor break a streak) =====
+        val offDays: List<Int> = medication?.offDays ?: emptyList()
+        val skipDate: Long = container.settingsRepository.getSkipTomorrowDate()
+        val pausedUntil: Long = container.settingsRepository.pausedUntilMillis.first()
+        val now = System.currentTimeMillis()
+
+        fun weekdayOf(dayStart: Long): Int =
+            Calendar.getInstance().apply { timeInMillis = dayStart }.get(Calendar.DAY_OF_WEEK)
+
+        /**
+         * A day the app told the user not to dose: an off-day (weekday in [offDays]),
+         * the current skip-tomorrow date, or today while reminders are paused. Historical
+         * skip/pause days aren't reconstructable, so only current ones are bridged.
+         */
+        fun isBridgeDay(daysAgo: Int, dayStart: Long): Boolean {
+            if (weekdayOf(dayStart) in offDays) return true
+            if (skipDate > 0L && dayStart == skipDate) return true
+            if (daysAgo == 0 && now < pausedUntil) return true
+            return false
+        }
+
         fun dayHasDose(daysAgo: Int): Boolean {
             val dayStart = TimeFormatter.startOfDayDaysAgo(daysAgo)
             return eventsByDay[dayStart]?.any { it.action in confirmedActions } == true
         }
 
-        // Current streak: consecutive days ending today with at least one confirmed dose
+        val todayLogged = dayHasDose(0)
+        val todayIsBridge = isBridgeDay(0, TimeFormatter.startOfDayDaysAgo(0))
+
+        // ===== Current streak with forgiveness =====
+        // Walk backward from today counting confirmed dose-days. Bridge days are neutral.
+        // A real one-day gap is forgiven by a grace day (max one per rolling 7 days), so a
+        // single missed day doesn't undo a long run. Today being unlogged never breaks the
+        // streak — it's "still open"; in that case the count reflects the last confirmed day.
         var currentStreak = 0
-        var i = 0
-        while (dayHasDose(i)) {
-            currentStreak++
-            i++
+        var graceApplied = false
+        // Sentinel far enough below 0 that the first gap is always eligible for grace, without
+        // the Int overflow that Int.MIN_VALUE would cause in `offset - lastGraceOffset`.
+        var lastGraceOffset = -1000
+        var offset = if (todayLogged || todayIsBridge) 0 else 1
+        while (offset <= 400) {
+            val dayStart = TimeFormatter.startOfDayDaysAgo(offset)
+            if (dayHasDose(offset)) {
+                currentStreak++
+                offset++
+            } else if (isBridgeDay(offset, dayStart)) {
+                offset++
+            } else if (currentStreak > 0 && offset - lastGraceOffset >= 7) {
+                // Forgive this single missed day.
+                graceApplied = true
+                lastGraceOffset = offset
+                offset++
+            } else {
+                break
+            }
         }
 
-        // Best streak: scan all days from first event to today
-        val oneDayMillis = 24L * 60 * 60 * 1000
+        // ===== Best streak (all history) — DST-safe calendar stepping; off-days bridge =====
         val firstEventDay = allEvents.minOf { TimeFormatter.startOfDay(it.actionedAt) }
-        val todayStart = TimeFormatter.startOfDay(System.currentTimeMillis())
+        val todayStart = TimeFormatter.startOfDay(now)
         var bestStreak = 0
         var run = 0
-        var cursor = firstEventDay
-        while (cursor <= todayStart) {
-            if (eventsByDay[cursor]?.any { it.action in confirmedActions } == true) {
-                run++
-                if (run > bestStreak) bestStreak = run
-            } else {
-                run = 0
+        val cursor = Calendar.getInstance().apply { timeInMillis = firstEventDay }
+        while (cursor.timeInMillis <= todayStart) {
+            val ds = cursor.timeInMillis
+            val hasDose = eventsByDay[ds]?.any { it.action in confirmedActions } == true
+            when {
+                hasDose -> {
+                    run++
+                    if (run > bestStreak) bestStreak = run
+                }
+                weekdayOf(ds) in offDays -> { /* bridge — carry the run across off-days */ }
+                else -> run = 0
             }
-            cursor += oneDayMillis
+            cursor.add(Calendar.DAY_OF_YEAR, 1) // DST-safe: stays on local midnight
         }
         bestStreak = maxOf(bestStreak, currentStreak)
 
-        // Adherence percentages
+        // ===== Adherence — off-days excluded from the denominator (app-sanctioned) =====
         fun adherence(days: Int): Float {
-            val taken = (0 until days).count { dayHasDose(it) }
-            return taken.toFloat() / days
+            var applicable = 0
+            var taken = 0
+            for (d in 0 until days) {
+                val ds = TimeFormatter.startOfDayDaysAgo(d)
+                if (weekdayOf(ds) in offDays) continue
+                applicable++
+                if (dayHasDose(d)) taken++
+            }
+            return if (applicable == 0) 1f else taken.toFloat() / applicable
         }
 
         // Total confirmed doses
@@ -124,6 +187,23 @@ class StatsViewModel(private val container: AppContainer) : ViewModel() {
         val last14Days = (13 downTo 0).map { buildDayStats(it) }
         val last90Days = (89 downTo 0).map { buildDayStats(it) }
 
+        // Milestone detection: 7, 30, 90, 180, 365
+        val milestones = setOf(7, 30, 90, 180, 365)
+        val milestoneStreak: Int? = if (currentStreak in milestones) {
+            val lastCelebrated = container.settingsRepository.lastCelebratedStreak.first()
+            if (currentStreak > lastCelebrated) {
+                container.settingsRepository.setLastCelebratedStreak(currentStreak)
+                currentStreak
+            } else null
+        } else {
+            // Reset if streak dropped so the milestone fires again when reached
+            val lastCelebrated = container.settingsRepository.lastCelebratedStreak.first()
+            if (currentStreak < lastCelebrated) {
+                container.settingsRepository.setLastCelebratedStreak(currentStreak)
+            }
+            null
+        }
+
         return StatsUiState(
             isLoading = false,
             medicationName = medication?.name,
@@ -135,6 +215,10 @@ class StatsViewModel(private val container: AppContainer) : ViewModel() {
             last14Days = last14Days,
             last90Days = last90Days,
             hasAnyData = true,
+            milestoneStreak = milestoneStreak,
+            todayLogged = todayLogged,
+            todayIsBridge = todayIsBridge,
+            graceApplied = graceApplied,
         )
     }
 }

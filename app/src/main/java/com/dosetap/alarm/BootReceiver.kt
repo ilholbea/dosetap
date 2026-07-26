@@ -54,9 +54,9 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 Log.i(TAG, "Rescheduling all alarms after: $action")
                 container.alarmScheduler.rescheduleAll()
-                val med = container.medicationDao.getFirst()
-                val lastDose = med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
-                container.ambientNotificationManager.update(med, lastDose)
+                // Re-arm the weekly summary — AlarmManager drops it on reboot (E-C5).
+                container.alarmScheduler.scheduleWeeklySummary()
+                container.refreshAmbient()
             }
 
             Intent.ACTION_TIMEZONE_CHANGED -> {

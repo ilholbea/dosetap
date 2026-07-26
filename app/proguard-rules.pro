@@ -24,3 +24,10 @@
 -keep public class * extends android.content.BroadcastReceiver
 -keep public class * extends android.app.Activity
 -keep public class * extends android.app.Application
+
+# Google Play Billing
+-keep class com.android.billingclient.** { *; }
+-keepclassmembers class com.dosetap.billing.** { *; }
+
+# Raw resources containing gift / dev-grant code hashes must not be stripped
+-keep class **.R$raw { *; }

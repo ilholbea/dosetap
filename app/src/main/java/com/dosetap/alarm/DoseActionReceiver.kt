@@ -44,6 +44,7 @@ class DoseActionReceiver : BroadcastReceiver() {
             Constants.ACTION_DOSE_TAKEN -> "✓ Dose recorded"
             Constants.ACTION_DOSE_SNOOZED -> "⏰ Snoozed 15 min"
             Constants.ACTION_DOSE_SKIPPED -> "Dose skipped"
+            Constants.ACTION_DOSE_STOP_TODAY -> "No more reminders today"
             else -> null
         }
         if (toastMsg != null) {
@@ -75,6 +76,13 @@ class DoseActionReceiver : BroadcastReceiver() {
         val container = (context.applicationContext as DoseTapApp).container
         val nowMillis = System.currentTimeMillis()
 
+        // Resolve medicationId — TAKEN/SKIPPED intents don't carry it, so fall back to the event.
+        val resolvedMedicationId = when {
+            medicationId != -1L -> medicationId
+            doseEventId != -1L -> container.doseEventDao.getById(doseEventId)?.medicationId ?: -1L
+            else -> -1L
+        }
+
         when (action) {
             Constants.ACTION_DOSE_TAKEN -> {
                 if (doseEventId != -1L) {
@@ -85,7 +93,9 @@ class DoseActionReceiver : BroadcastReceiver() {
                         )
                     }
                 }
-                Log.d(TAG, "Dose marked TAKEN for event $doseEventId")
+                // Cancel all remaining follow-up alarms for this tap
+                if (tapId != -1L) container.alarmScheduler.cancelFollowUps(tapId)
+                Log.d(TAG, "Dose marked TAKEN for event $doseEventId, follow-ups cancelled for tapId=$tapId")
             }
 
             Constants.ACTION_DOSE_SNOOZED -> {
@@ -98,17 +108,15 @@ class DoseActionReceiver : BroadcastReceiver() {
                     }
                 }
 
-                // Schedule a follow-up alarm in SNOOZE_DURATION_MILLIS
-                if (medicationId != -1L) {
+                // Re-ping in SNOOZE_DURATION_MILLIS, keeping the remaining follow-up chain (E-H1).
+                if (medicationId != -1L && tapId != -1L) {
                     val medication = container.medicationDao.getById(medicationId)
                     if (medication != null) {
                         val snoozeTriggerAt = nowMillis + Constants.SNOOZE_DURATION_MILLIS
-                        // Use a unique snooze tapId derived from original tapId
-                        val snoozeTapId = tapId * 1000 + (nowMillis % 1000)
-                        container.alarmScheduler.scheduleFollowUps(
-                            tapId = snoozeTapId,
-                            medication = medication.copy(followUps = listOf(0)), // immediate follow-up
-                            baseTimeMillis = snoozeTriggerAt,
+                        container.alarmScheduler.scheduleSnooze(
+                            tapId = tapId,
+                            medication = medication,
+                            triggerAtMillis = snoozeTriggerAt,
                         )
                     }
                 }
@@ -124,11 +132,25 @@ class DoseActionReceiver : BroadcastReceiver() {
                         )
                     }
                 }
-                Log.d(TAG, "Dose SKIPPED for event $doseEventId")
+                // Cancel all remaining follow-up alarms for this tap
+                if (tapId != -1L) container.alarmScheduler.cancelFollowUps(tapId)
+                Log.d(TAG, "Dose SKIPPED for event $doseEventId, follow-ups cancelled for tapId=$tapId")
+            }
+
+            Constants.ACTION_DOSE_STOP_TODAY -> {
+                // Cancel all of today's remaining alarms for this medication — no dose event recorded
+                if (medicationId != -1L) {
+                    container.alarmScheduler.cancelTodayRemainingForMedication(medicationId)
+                }
+                Log.d(TAG, "Stop-today: cancelled remaining alarms for medicationId=$medicationId")
             }
 
             else -> Log.w(TAG, "Unknown action: $action")
         }
+
+        // Any response to the reminder cancels its escalation re-nudge chain (Spec #2).
+        // A SNOOZE re-arms a fresh chain when the snoozed follow-up fires.
+        container.alarmScheduler.cancelEscalation(resolvedMedicationId)
 
         // Dismiss the notification regardless of action
         if (notificationId != -1) {
@@ -138,9 +160,7 @@ class DoseActionReceiver : BroadcastReceiver() {
 
         // Update ambient notification after action
         try {
-            val med = container.medicationDao.getFirst()
-            val lastDose = med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }
-            container.ambientNotificationManager.update(med, lastDose)
+            container.refreshAmbient()
         } catch (e: Exception) {
             Log.e(TAG, "Ambient notification update failed", e)
         }

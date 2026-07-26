@@ -19,16 +19,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,7 +62,7 @@ fun PaywallBottomSheet(
     price: String,
     onPurchase: (Activity) -> Unit,
     onRestore: () -> Unit,
-    onGiftCode: (String) -> Boolean,
+    onGiftCode: (String) -> com.dosetap.billing.GiftCodeManager.CodeResult?,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -72,12 +71,90 @@ fun PaywallBottomSheet(
     var showGiftCodeField by remember { mutableStateOf(false) }
     var giftCodeText by remember { mutableStateOf("") }
     var giftCodeError by remember { mutableStateOf(false) }
+    var showTrialSuccess by remember { mutableStateOf(false) }
+    var showDevGrantSuccess by remember { mutableStateOf(false) }
+    var showMoreFeatures by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
+        if (showTrialSuccess) {
+            // Trial activation confirmation
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(16.dp))
+                Text("⭐", fontSize = 48.sp)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "14-day trial activated!",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "You have full Pro access for the next 14 days. After that, your data is safe and free features still work — you can unlock Pro any time.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(28.dp))
+                Button(
+                    onClick = { scope.launch { sheetState.hide(); onDismiss() } },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text("Got it", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+            return@ModalBottomSheet
+        }
+
+        if (showDevGrantSuccess) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(16.dp))
+                Text("⭐", fontSize = 48.sp)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Pro unlocked — forever.",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "This is a permanent unlock. No expiry, no subscription.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(28.dp))
+                Button(
+                    onClick = { scope.launch { sheetState.hide(); onDismiss() } },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text("Let's go", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+            return@ModalBottomSheet
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -86,7 +163,6 @@ fun PaywallBottomSheet(
                 .padding(bottom = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Crown icon
             Box(
                 modifier = Modifier
                     .size(64.dp)
@@ -100,7 +176,7 @@ fun PaywallBottomSheet(
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "DoseTap Pro",
+                text = "DopaTap Pro",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -117,29 +193,45 @@ fun PaywallBottomSheet(
 
             Spacer(Modifier.height(24.dp))
 
-            // Feature list
-            val features = listOf(
-                Triple(Icons.Filled.Schedule, "Up to 4 follow-up reminders", "Free includes 2"),
-                Triple(Icons.Filled.BarChart, "90-day adherence heatmap", "The picture you show your psychiatrist"),
-                Triple(Icons.Filled.CalendarMonth, "Doctor visit report", "One-tap PDF for your psychiatrist appointment"),
-                Triple(Icons.Filled.Notifications, "Smart escalation reminders", "+10 and +25 min nudges if you don't log"),
-                Triple(Icons.Filled.LocalPharmacy, "Prescription refill prediction", "Auto-calculates when to book your psych appointment"),
-                Triple(Icons.Filled.MusicNote, "Custom alarm tone", "Use any sound on your phone"),
-                Triple(Icons.Filled.Star, "Sponsor a friend", "Give Pro to one person you choose"),
-            )
-
+            // Top 3 highest-value features — doctor report leads (psychiatrist channel),
+            // sponsor-a-friend framed as included value (growth loop), heatmap third.
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                features.forEach { (icon, title, subtitle) ->
-                    ProFeatureRow(icon = icon, title = title, subtitle = subtitle)
-                }
+                ProFeatureRow(Icons.Filled.CalendarMonth, "Doctor visit report PDF", "Print-ready summary to bring to your next appointment")
+                ProFeatureRow(Icons.Filled.BarChart, "90-day adherence heatmap", "The picture you show your psychiatrist")
+                ProFeatureRow(Icons.Filled.Star, "Sponsor a friend", "Pro you buy includes a Pro you give — one free unlock to share")
             }
 
-            Spacer(Modifier.height(28.dp))
+            // Expandable "more features"
+            Spacer(Modifier.height(12.dp))
+            TextButton(
+                onClick = { showMoreFeatures = !showMoreFeatures },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (showMoreFeatures) "Show less" else "4 more features ▾",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
-            // CTA button
+            if (showMoreFeatures) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ProFeatureRow(Icons.Filled.Notifications, "Smart escalation reminders", "+10 and +25 min nudges if you don't log")
+                    ProFeatureRow(Icons.Filled.LocalPharmacy, "Prescription refill prediction", "Know exactly when to book your psych appointment")
+                    ProFeatureRow(Icons.Filled.Schedule, "Up to 4 follow-up reminders", "Free includes 2")
+                    ProFeatureRow(Icons.Filled.MusicNote, "Custom alarm tone", "Use any sound on your phone")
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.height(20.dp))
+
             Button(
                 onClick = { context.findActivity()?.let(onPurchase) },
                 modifier = Modifier
@@ -185,7 +277,6 @@ fun PaywallBottomSheet(
                 }
             }
 
-            // Gift code field
             if (showGiftCodeField) {
                 Spacer(Modifier.height(8.dp))
                 Row(
@@ -209,10 +300,10 @@ fun PaywallBottomSheet(
                     )
                     Button(
                         onClick = {
-                            if (onGiftCode(giftCodeText)) {
-                                scope.launch { sheetState.hide(); onDismiss() }
-                            } else {
-                                giftCodeError = true
+                            when (onGiftCode(giftCodeText)) {
+                                com.dosetap.billing.GiftCodeManager.CodeResult.DevGrant -> showDevGrantSuccess = true
+                                com.dosetap.billing.GiftCodeManager.CodeResult.SponsorGift -> showTrialSuccess = true
+                                else -> giftCodeError = true
                             }
                         },
                         enabled = giftCodeText.length >= 8,

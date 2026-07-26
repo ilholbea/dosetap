@@ -213,6 +213,10 @@ class SettingsViewModel(
     }
 
     fun unlockProViaGiftCode() {
-        viewModelScope.launch { container.settingsRepository.setGiftCodeUnlocked(true) }
+        viewModelScope.launch { container.settingsRepository.startTrial("gift") }
+    }
+
+    fun redeemDevGrant() {
+        viewModelScope.launch { container.settingsRepository.setDevGrantUnlocked() }
     }
 }

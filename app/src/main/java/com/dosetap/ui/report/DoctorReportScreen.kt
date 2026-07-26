@@ -37,7 +37,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,7 +48,6 @@ import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
 import com.dosetap.domain.model.Medication
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -60,8 +58,20 @@ private data class ReportData(
     val medication: Medication?,
     val events: List<DoseEvent>,
     val adherence30Days: Float,
+    val adherenceWeekdays: Float,
+    val adherenceWeekends: Float,
     val streak: Int,
     val totalDoses: Int,
+    /** Median first-dose-of-day time in "HH:mm" form, null if no dosed days. */
+    val firstDoseMedian: String?,
+    /** Earliest first-dose time in "HH:mm" form. */
+    val firstDoseEarliest: String?,
+    /** Latest first-dose time in "HH:mm" form. */
+    val firstDoseLatest: String?,
+    /** Day-start UTC millis for days in the last 30 with no logged dose. */
+    val missedDays: List<Long>,
+    /** Tag string → count, top 5. */
+    val topTags: List<Pair<String, Int>>,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,8 +79,6 @@ private data class ReportData(
 fun DoctorReportScreen(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val container = (context.applicationContext as DoseTapApp).container
-    val scope = rememberCoroutineScope()
-
     var reportData by remember { mutableStateOf<ReportData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -121,9 +129,26 @@ fun DoctorReportScreen(onNavigateBack: () -> Unit) {
         val data = reportData
         if (data == null || data.medication == null) {
             Box(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 32.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text("No data available.", style = MaterialTheme.typography.bodyMedium) }
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("📋", style = MaterialTheme.typography.headlineLarge)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Not enough data yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Pick a longer range, or come back after a few weeks of logging. The report works best with 30+ days of data.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
             return@Scaffold
         }
 
@@ -173,13 +198,71 @@ fun DoctorReportScreen(onNavigateBack: () -> Unit) {
             item {
                 Card {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Adherence Summary", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        Text("Adherence", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(8.dp))
-                        ReportRow("30-day adherence", "${(data.adherence30Days * 100).toInt()}%")
+                        ReportRow("30-day overall", "${(data.adherence30Days * 100).toInt()}%")
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                        ReportRow("Current streak", "${data.streak} days")
+                        ReportRow("Weekdays", "${(data.adherenceWeekdays * 100).toInt()}%")
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        ReportRow("Weekends", "${(data.adherenceWeekends * 100).toInt()}%")
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                         ReportRow("Total doses logged", "${data.totalDoses}")
+                    }
+                }
+            }
+
+            if (data.firstDoseMedian != null) {
+                item {
+                    Card {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Time of first dose", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.height(8.dp))
+                            val rangeText = if (data.firstDoseEarliest != null && data.firstDoseLatest != null) {
+                                "usually ${data.firstDoseMedian}, range ${data.firstDoseEarliest}–${data.firstDoseLatest}"
+                            } else data.firstDoseMedian
+                            Text(rangeText, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+
+            if (data.missedDays.isNotEmpty()) {
+                item {
+                    Card {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "Days without a logged dose (last 30)",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "${data.missedDays.size} day(s)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            val fmt = SimpleDateFormat("MMM d", Locale.getDefault())
+                            Text(
+                                data.missedDays.joinToString(", ") { fmt.format(Date(it)) },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (data.topTags.isNotEmpty()) {
+                item {
+                    Card {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Most common notes", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.height(8.dp))
+                            data.topTags.forEach { (tag, count) ->
+                                ReportRow(tag, "${count}x")
+                            }
+                        }
                     }
                 }
             }
@@ -273,12 +356,75 @@ private suspend fun loadReport(container: com.dosetap.AppContainer): ReportData 
         } else break
     }
 
+    val cutoff = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+    val recent = allEvents.filter { it.actionedAt >= cutoff && it.action in confirmedActions }
+
+    // Weekday vs weekend adherence split.
+    var wkdDosed = 0; var wkdTotal = 0; var wkeDosed = 0; var wkeTotal = 0
+    for (daysAgo in 0 until 30) {
+        val dayStart = startOfDay(System.currentTimeMillis() - daysAgo * oneDayMillis)
+        val cal = Calendar.getInstance().apply { timeInMillis = dayStart }
+        val dow = cal.get(Calendar.DAY_OF_WEEK)
+        val isWeekend = dow == Calendar.SATURDAY || dow == Calendar.SUNDAY
+        val dosed = eventsByDay[dayStart]?.any { it.action in confirmedActions } == true
+        if (isWeekend) { wkeTotal++; if (dosed) wkeDosed++ }
+        else { wkdTotal++; if (dosed) wkdDosed++ }
+    }
+
+    // First-dose-of-day time distribution.
+    val firstDosesByDay = recent
+        .groupBy { startOfDay(it.actionedAt) }
+        .mapValues { (_, dayEvents) -> dayEvents.minByOrNull { it.actionedAt }!!.actionedAt }
+        .values
+        .sorted()
+    val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+    fun timeOfDayMins(ts: Long): Int {
+        val cal = Calendar.getInstance().apply { timeInMillis = ts }
+        return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    }
+    val firstMedian = firstDosesByDay
+        .map { timeOfDayMins(it) }
+        .sorted()
+        .let { if (it.isEmpty()) null else it[it.size / 2] }
+        ?.let { String.format(Locale.getDefault(), "%02d:%02d", it / 60, it % 60) }
+    val firstEarliest = firstDosesByDay.minByOrNull { timeOfDayMins(it) }?.let { timeFmt.format(Date(it)) }
+    val firstLatest = firstDosesByDay.maxByOrNull { timeOfDayMins(it) }?.let { timeFmt.format(Date(it)) }
+
+    // Missed days in the last 30 (off-days excluded).
+    val offDays = medication?.offDays.orEmpty().toSet()
+    val missedDays = (0 until 30).mapNotNull { daysAgo ->
+        val dayStart = startOfDay(System.currentTimeMillis() - daysAgo * oneDayMillis)
+        val cal = Calendar.getInstance().apply { timeInMillis = dayStart }
+        val dow = cal.get(Calendar.DAY_OF_WEEK)
+        if (dow in offDays) return@mapNotNull null
+        val dosed = eventsByDay[dayStart]?.any { it.action in confirmedActions } == true
+        if (!dosed) dayStart else null
+    }
+
+    // Top tags from notes (notes can be a comma-separated string or freetext).
+    val topTags = recent
+        .mapNotNull { it.note }
+        .flatMap { it.split(",", ";").map(String::trim).filter(String::isNotBlank) }
+        .groupingBy { it.lowercase(Locale.getDefault()) }
+        .eachCount()
+        .entries
+        .sortedByDescending { it.value }
+        .take(5)
+        .map { it.key to it.value }
+
     return ReportData(
         medication = medication,
         events = allEvents,
         adherence30Days = taken30.toFloat() / 30f,
+        adherenceWeekdays = if (wkdTotal > 0) wkdDosed.toFloat() / wkdTotal else 0f,
+        adherenceWeekends = if (wkeTotal > 0) wkeDosed.toFloat() / wkeTotal else 0f,
         streak = streak,
         totalDoses = allEvents.count { it.action in confirmedActions },
+        firstDoseMedian = firstMedian,
+        firstDoseEarliest = firstEarliest,
+        firstDoseLatest = firstLatest,
+        missedDays = missedDays,
+        topTags = topTags,
     )
 }
 
@@ -295,31 +441,63 @@ private fun printReport(context: Context, data: ReportData) {
             "<tr><td>${fmt.format(Date(event.actionedAt))}</td><td>${event.action.name.replace('_', ' ')}</td></tr>"
         }
 
+    val dateFmt = SimpleDateFormat("MMM d", Locale.getDefault())
+    val missedRows = data.missedDays.joinToString(", ") { dateFmt.format(Date(it)) }
+        .ifBlank { "None" }
+    val firstDoseRange = when {
+        data.firstDoseMedian == null -> "—"
+        data.firstDoseEarliest != null && data.firstDoseLatest != null ->
+            "usually ${data.firstDoseMedian}, range ${data.firstDoseEarliest}–${data.firstDoseLatest}"
+        else -> data.firstDoseMedian!!
+    }
+    val tagsBlock = if (data.topTags.isEmpty()) "No tagged notes in this period."
+    else "<ul style=\"margin:0;padding-left:18px\">" +
+        data.topTags.joinToString("") { (tag, count) ->
+            "<li>${tag.replace("<", "&lt;")} (${count}x)</li>"
+        } + "</ul>"
+
     val html = """
         <!DOCTYPE html><html><head><meta charset="UTF-8"/>
         <style>
-          body{font-family:Arial,sans-serif;font-size:12px;margin:20px}
+          body{font-family:Arial,sans-serif;font-size:12px;margin:20px;color:#222}
           h1{font-size:18px;margin-bottom:4px}
           h2{font-size:14px;margin-top:20px;margin-bottom:8px;color:#333}
           table{width:100%;border-collapse:collapse;margin-top:8px}
           th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}
           th{background:#f5f5f5}
-          .stat{display:inline-block;margin-right:24px}
+          .stat{display:inline-block;margin-right:24px;margin-bottom:4px}
           .generated{color:#888;font-size:11px}
+          .footer{margin-top:28px;font-size:10px;color:#999;font-style:italic;border-top:1px solid #eee;padding-top:8px}
         </style></head><body>
-        <h1>Patient Medication Report</h1>
-        <p class="generated">Generated ${SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date())}</p>
+        <h1>Medication Adherence Report</h1>
+        <p class="generated">Generated ${SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date())} · 30-day window</p>
+
         <h2>Medication</h2>
-        <p><b>${medication.name}</b>${if (medication.durationMinutes != null) " — effect window: ${medication.durationMinutes / 60}h ${medication.durationMinutes % 60}min" else ""}</p>
-        <h2>Adherence Summary</h2>
+        <p><b>${medication.name}</b>${if (medication.durationMinutes != null) " — effect window approx. ${medication.durationMinutes / 60}h ${medication.durationMinutes % 60}min" else ""}</p>
+
+        <h2>Adherence</h2>
         <p>
-          <span class="stat"><b>30-day adherence:</b> ${(data.adherence30Days * 100).toInt()}%</span>
-          <span class="stat"><b>Current streak:</b> ${data.streak} days</span>
+          <span class="stat"><b>30-day overall:</b> ${(data.adherence30Days * 100).toInt()}%</span>
+          <span class="stat"><b>Weekdays:</b> ${(data.adherenceWeekdays * 100).toInt()}%</span>
+          <span class="stat"><b>Weekends:</b> ${(data.adherenceWeekends * 100).toInt()}%</span>
+        </p>
+        <p>
           <span class="stat"><b>Total doses logged:</b> ${data.totalDoses}</span>
         </p>
+
+        <h2>Time of first dose</h2>
+        <p>$firstDoseRange</p>
+
+        <h2>Days without a logged dose (last 30)</h2>
+        <p>${data.missedDays.size} day(s)${if (data.missedDays.isNotEmpty()) ": $missedRows" else ""}</p>
+
+        <h2>Most common notes</h2>
+        $tagsBlock
+
         <h2>Dose Log (Last 30 Days)</h2>
         <table><tr><th>Date &amp; Time</th><th>Action</th></tr>$doseRows</table>
-        <p style="margin-top:24px;font-size:10px;color:#aaa">Generated by DoseTap &mdash; reminder tool only, not a medical record.</p>
+
+        <p class="footer">Generated by DopaTap. Data, not interpretation. This document is a record of self-logged dose timings and is not a medical record or diagnostic tool.</p>
         </body></html>
     """.trimIndent()
 
@@ -327,7 +505,7 @@ private fun printReport(context: Context, data: ReportData) {
     webView.webViewClient = object : WebViewClient() {
         override fun onPageFinished(view: WebView, url: String) {
             val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-            val jobName = "DoseTap Report ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
+            val jobName = "DopaTap Report ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
             val printAdapter = view.createPrintDocumentAdapter(jobName)
             printManager.print(
                 jobName,

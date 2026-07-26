@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DoseTap</string>
+    <string name="app_name">DopaTap</string>
+    <string name="app_tagline">ADHD Utility Belt</string>
 
     <!-- Onboarding -->
-    <string name="onboarding_welcome_title">Welcome to DoseTap</string>
+    <string name="onboarding_welcome_title">Welcome to DopaTap</string>
     <string name="onboarding_welcome_subtitle">Your reliable medication reminder.\nNever miss a dose again.</string>
-    <string name="onboarding_welcome_disclaimer">DoseTap is a reminder tool. It is not a medical device, does not provide medical advice, and is not a substitute for consulting your doctor or pharmacist.</string>
+    <string name="onboarding_welcome_disclaimer">DopaTap is a reminder tool. It is not a medical device, does not provide medical advice, and is not a substitute for consulting your doctor or pharmacist.</string>
     <string name="onboarding_next">Next</string>
     <string name="onboarding_skip">Skip</string>
     <string name="onboarding_get_started">Get Started</string>
@@ -13,11 +14,11 @@
 
     <!-- Onboarding Permissions -->
     <string name="onboarding_permissions_title">Allow Notifications</string>
-    <string name="onboarding_permissions_subtitle">DoseTap needs permission to show reminders when it\'s time for your next dose.</string>
+    <string name="onboarding_permissions_subtitle">DopaTap needs permission to show reminders when it\'s time for your next dose.</string>
     <string name="onboarding_permissions_notifications_title">Medication Reminders</string>
     <string name="onboarding_permissions_notifications_desc">Show notifications when it\'s time to take your medication</string>
     <string name="onboarding_permissions_dnd_title">Bypass Do Not Disturb</string>
-    <string name="onboarding_permissions_dnd_desc">Allow reminders to appear even during Do Not Disturb. Go to Settings → Apps → DoseTap → Notifications → Medication Alarms and enable \"Override Do Not Disturb\".</string>
+    <string name="onboarding_permissions_dnd_desc">Allow reminders to appear even during Do Not Disturb. Go to Settings → Apps → DopaTap → Notifications → Medication Alarms and enable \"Override Do Not Disturb\".</string>
     <string name="onboarding_permissions_allow">Allow Notifications</string>
     <string name="onboarding_permissions_already_granted">Notifications allowed ✓</string>
 
@@ -36,7 +37,7 @@
     <string name="onboarding_widget_title">Add the Widget</string>
     <string name="onboarding_widget_subtitle">The widget lets you log a dose with one tap — no need to open the app.</string>
     <string name="onboarding_widget_pin">Add Widget to Home Screen</string>
-    <string name="onboarding_widget_pin_fallback">Long-press your home screen → Widgets → DoseTap → drag to place.</string>
+    <string name="onboarding_widget_pin_fallback">Long-press your home screen → Widgets → DopaTap → drag to place.</string>
     <string name="onboarding_widget_skip">Skip for now</string>
 
     <!-- Home Screen -->
@@ -75,6 +76,27 @@
     <string name="alarm_taken">Taken</string>
     <string name="alarm_snooze">Snooze 15 min</string>
     <string name="alarm_skip">Skip</string>
+    <string name="alarm_stop_today">Stop today</string>
+    <string name="toast_stop_today">No more reminders today</string>
+
+    <!-- Smart escalation re-nudges (Pro) -->
+    <string name="escalation_nudge_1">Still there? Your %1$s dose is waiting.</string>
+    <string name="escalation_nudge_2">Last nudge for %1$s — tap to log, or snooze and we\'ll drop it.</string>
+
+    <!-- Weekly summary (adaptive copy — never leads with a fraction, never lectures) -->
+    <string name="weekly_summary_title">Weekly check-in</string>
+    <string name="weekly_summary_strong">Strong week — %1$d of 7 days. The habit is carrying you now.</string>
+    <string name="weekly_summary_steady">You showed up %1$d days this week. Steady beats perfect.</string>
+    <string name="weekly_summary_rough">Rough week — it happens, and it doesn\'t erase anything. Tomorrow\'s a clean slate. Want to check your anchor still fits?</string>
+
+    <!-- Celebrations -->
+    <string name="celebration_first_dose">Anchor set 🎯</string>
+    <string name="celebration_streak_7">7 days strong 🔥</string>
+    <string name="celebration_streak_30">30-day milestone 🎯</string>
+    <string name="celebration_streak_90">90-day milestone 🏆</string>
+    <string name="celebration_streak_180">Half a year of consistency ✨</string>
+    <string name="celebration_streak_365">One full year ✨</string>
+    <string name="milestone_personal_best">Personal best ✨</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
@@ -82,8 +104,8 @@
     <string name="settings_medication_edit">Edit Medication</string>
     <string name="settings_reliability_section">Reliability</string>
     <string name="settings_reliability_check">Reliability Check</string>
-    <string name="settings_test_reminder">Test Reminder (1 minute)</string>
-    <string name="settings_test_reminder_scheduled">Test reminder scheduled for 1 minute from now</string>
+    <string name="settings_test_reminder">Test Reminder (10 seconds)</string>
+    <string name="settings_test_reminder_scheduled">Test reminder scheduled for 10 seconds from now</string>
     <string name="settings_data_section">Data</string>
     <string name="settings_export_data">Export Data (JSON)</string>
     <string name="settings_delete_data">Delete All Data</string>
@@ -95,27 +117,27 @@
     <string name="settings_privacy_policy">Privacy Policy</string>
     <string name="settings_disclaimer">Disclaimer</string>
     <string name="settings_version">Version %1$s (%2$d)</string>
-    <string name="settings_about_text">DoseTap is a reminder tool. It is not a medical device, does not provide medical advice, and is not a substitute for consulting your doctor or pharmacist.</string>
+    <string name="settings_about_text">DopaTap is a reminder tool. It is not a medical device, does not provide medical advice, and is not a substitute for consulting your doctor or pharmacist.</string>
     <string name="settings_privacy_url">https://dosetap.github.io/privacy</string>
 
     <!-- Reliability -->
     <string name="reliability_title">Reliability Check</string>
     <string name="reliability_oem_warning_title">Action required: %1$s phones</string>
-    <string name="reliability_oem_warning_xiaomi">Xiaomi phones aggressively kill background apps. You need to allow DoseTap to autostart and disable battery optimization to ensure alarms fire reliably.</string>
-    <string name="reliability_oem_warning_samsung">Samsung One UI may restrict background apps. Please allow DoseTap to run unrestricted in Battery settings.</string>
-    <string name="reliability_oem_warning_oneplus">OnePlus phones may kill background apps. Please disable battery optimization for DoseTap.</string>
-    <string name="reliability_oem_warning_huawei">Huawei phones have aggressive battery management. Please add DoseTap to the \"Protected Apps\" list.</string>
-    <string name="reliability_oem_warning_oppo">OPPO phones may restrict background apps. Please enable autostart for DoseTap.</string>
+    <string name="reliability_oem_warning_xiaomi">Xiaomi phones aggressively kill background apps. You need to allow DopaTap to autostart and disable battery optimization to ensure alarms fire reliably.</string>
+    <string name="reliability_oem_warning_samsung">Samsung One UI may restrict background apps. Please allow DopaTap to run unrestricted in Battery settings.</string>
+    <string name="reliability_oem_warning_oneplus">OnePlus phones may kill background apps. Please disable battery optimization for DopaTap.</string>
+    <string name="reliability_oem_warning_huawei">Huawei phones have aggressive battery management. Please add DopaTap to the \"Protected Apps\" list.</string>
+    <string name="reliability_oem_warning_oppo">OPPO phones may restrict background apps. Please enable autostart for DopaTap.</string>
     <string name="reliability_fix_button">Fix Now (30 seconds)</string>
     <string name="reliability_battery_opt_title">Battery Optimization</string>
-    <string name="reliability_battery_opt_desc">DoseTap is currently subject to battery optimization, which may delay or prevent alarms.</string>
+    <string name="reliability_battery_opt_desc">DopaTap is currently subject to battery optimization, which may delay or prevent alarms.</string>
     <string name="reliability_battery_opt_fix">Disable Battery Optimization</string>
     <string name="reliability_battery_opt_ok">Battery optimization is disabled ✓</string>
-    <string name="reliability_intent_failed">Could not open settings automatically. Please go to Settings → Apps → DoseTap → Battery → Unrestricted manually.</string>
+    <string name="reliability_intent_failed">Could not open settings automatically. Please go to Settings → Apps → DopaTap → Battery → Unrestricted manually.</string>
 
     <!-- History -->
     <string name="history_title">History</string>
-    <string name="history_empty">No dose history yet</string>
+    <string name="history_empty">Your dose history will show here once you start logging. Tap 💊 on Home or the widget.</string>
     <string name="history_filter_all">All</string>
     <string name="history_filter_taken">Taken</string>
     <string name="history_filter_snoozed">Snoozed</string>
@@ -129,7 +151,7 @@
     <string name="history_delete_confirm">Delete</string>
 
     <!-- Widget -->
-    <string name="widget_description">DoseTap medication reminder widget</string>
+    <string name="widget_description">DopaTap medication reminder widget</string>
     <string name="widget_tap_to_log">Tap to log dose</string>
     <string name="widget_logged_at">Logged at %1$s — tap again to undo</string>
     <string name="widget_next_doses">Next: %1$s</string>
@@ -152,9 +174,9 @@
     <string name="settings_save">Save</string>
     <string name="settings_followups_summary">Follow-ups: %1$s</string>
     <string name="action_undo">Undo</string>
-    <string name="reliability_oem_desc">This phone brand may stop DoseTap from working reliably. Tap below to configure battery settings.</string>
-    <string name="widget_open_app">Open DoseTap</string>
-    <string name="widget_config_no_medication_hint">Please add a medication in the DoseTap app first.</string>
+    <string name="reliability_oem_desc">This phone brand may stop DopaTap from working reliably. Tap below to configure battery settings.</string>
+    <string name="widget_open_app">Open DopaTap</string>
+    <string name="widget_config_no_medication_hint">Please add a medication in the DopaTap app first.</string>
 
     <!-- Errors -->
     <string name="error_dose_log_failed">Could not save dose. Please try again.</string>
@@ -193,6 +215,26 @@
     <string name="off_day_log_anyway">Log anyway</string>
     <string name="settings_off_days_title">Off-days (no reminders)</string>
 
+    <!-- Focus Timer -->
+    <string name="focus_screen_title">Focus</string>
+    <string name="focus_mode_focus">🧠 Focus</string>
+    <string name="focus_mode_task">⏱️ Task</string>
+    <string name="focus_mode_transition">🔔 Transition</string>
+    <string name="focus_mode_break">☕ Break</string>
+    <string name="focus_done_title">Focus session done ✨</string>
+    <string name="focus_done_body">Take a moment — you earned it.</string>
+    <string name="focus_break_done_title">Break time over ☕</string>
+    <string name="focus_transition_done_title">Time\'s up 🔔</string>
+    <string name="focus_sessions_today">%1$d session%2$s today</string>
+
+    <!-- Brain Dump -->
+    <string name="brain_dump_title">💡 Brain dump</string>
+    <string name="brain_dump_subtitle">Capture a fleeting thought before it vanishes.</string>
+    <string name="brain_dump_placeholder">What\'s on your mind?</string>
+    <string name="brain_dump_save">Save</string>
+    <string name="brain_dump_clear">Clear all</string>
+    <string name="brain_dump_recent">Recent</string>
+
     <!-- Pill tracking -->
     <string name="pill_count_remaining">%1$d pills remaining</string>
     <string name="pill_count_refill_title">Refill reminder</string>
@@ -216,7 +258,4 @@
     <string name="warning_off_day_title">Today is an off-day</string>
     <string name="warning_log_anyway">Log anyway</string>
 
-    <!-- Weekly summary -->
-    <string name="weekly_summary_title">Weekly Dose Summary</string>
-    <string name="weekly_summary_body">This week: %1$d/7 days on time. Best streak: %2$d days.</string>
 </resources>

@@ -141,3 +141,41 @@ aapt dump permissions app/build/outputs/apk/release/app-release-unsigned.apk | g
 # Check APK size (must be < 10 MB)
 ls -lh app/build/outputs/apk/release/app-release-unsigned.apk
 ```
+
+---
+
+## v1.0 Pre-Submission Verification
+
+### Build
+- `./gradlew test` — all unit tests pass (incl. new `MedicationPresetTest`, `RefillPredictionTest`)
+- `./gradlew assembleRelease` — succeeds with `isMinifyEnabled = true`, `isShrinkResources = true`
+- Resulting APK < 10MB
+
+### Functional smoke matrix
+- [ ] First install → onboarding (Welcome → Pick Med preset → Usual time → Anchor → Permissions → Pin Widget) → grant notifications → first dose log → Anchor notification appears with the chosen cue ("right after ☕ coffee") → widget shows correct state
+- [ ] Restart device → alarms reschedule → Anchor notification reappears
+- [ ] Time-zone change while alarm scheduled → banner appears → dose still fires at correct local clock time
+- [ ] Long-press the 💊 button → "Skip tomorrow" → next-day status shows "Skipped"
+- [ ] Set effect window → wait until 60 min before window end → comedown warning fires
+- [ ] Pro: trigger smart escalation — confirm +10 and +25 min reminders fire and stop (no third)
+- [ ] Pro: set Rx date + days supply, set system date close to refill-by date → Home shows the blue date-based banner
+- [ ] Export JSON → uninstall → reinstall → "Restore from backup" link on Welcome step → pick the file → history intact
+- [ ] Phantom-tap: short tap on 💊 does NOT log (must hold 250ms) → radial sweep visible during hold
+- [ ] Undo banner appears for 8 seconds after a logged dose → tap "+ Add note" works
+
+### Device matrix (manual)
+- [ ] Pixel emulator API 34 (clean baseline)
+- [ ] Samsung physical device (One UI battery quirks — confirm alarms fire after 24h sleep)
+- [ ] Xiaomi physical device (MIUI is the worst offender — reliability banner deeplink lands on the right MIUI page)
+- [ ] One Android 11 device — confirm lock-screen notification action works without unlock
+
+### Pre-submission checklist
+- [ ] Privacy policy URL live (`PRIVACY_POLICY.md` published to GitHub Pages, URL in `strings.xml`)
+- [ ] Play Console listing populated from `playstore/listing.md`
+- [ ] 5 screenshots rendered per `playstore/screenshots.md`
+- [ ] 1024×500 feature graphic uploaded
+- [ ] App icon replaced (current is placeholder — see `playstore/icon-brief.md`)
+- [ ] Data Safety form: "No data collected"
+- [ ] `dosetap_pro` SKU created at €2.99
+- [ ] Release keystore stored OUTSIDE the repo
+- [ ] Internal test track upload succeeds

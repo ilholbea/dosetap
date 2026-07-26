@@ -64,10 +64,20 @@ object Constants {
     // This ensures unique codes per alarm. tapId is truncated to 28 bits, followUpIndex uses 4 bits (0-15).
     const val REQUEST_CODE_SHIFT = 4
 
+    /**
+     * Reserved follow-up index for a snooze re-ping. Sits at the top of the 4-bit index range
+     * so it never collides with real follow-ups (0 until [MAX_FOLLOWUP_COUNT]). Keying the snooze
+     * to the original tapId at this slot lets a snooze re-arm without touching the follow-up chain,
+     * and keeps snoozed events grouped under their original tap (E-H1).
+     */
+    const val SNOOZE_FOLLOWUP_INDEX = 15
+
     // ===== DoseAction BroadcastReceiver actions =====
     const val ACTION_DOSE_TAKEN = "com.dosetap.action.DOSE_TAKEN"
     const val ACTION_DOSE_SNOOZED = "com.dosetap.action.DOSE_SNOOZED"
     const val ACTION_DOSE_SKIPPED = "com.dosetap.action.DOSE_SKIPPED"
+    /** Cancels all remaining follow-up alarms for today without logging a skip event. */
+    const val ACTION_DOSE_STOP_TODAY = "com.dosetap.action.DOSE_STOP_TODAY"
 
     // ===== Default follow-up intervals =====
     val DEFAULT_FOLLOWUPS = listOf(240, 480) // +4h, +8h in minutes
@@ -92,10 +102,29 @@ object Constants {
     const val ESCALATION_REQUEST_CODE_BASE = 0x400_000
     const val ESCALATION_FIRST_DELAY_MILLIS = 10 * 60 * 1000L   // +10 min
     const val ESCALATION_SECOND_DELAY_MILLIS = 25 * 60 * 1000L  // +25 min
+    /** Hard cap on re-nudges per reminder. Nagging teaches dismissal — keep it to two. */
+    const val ESCALATION_MAX_NUDGES = 2
+    const val ACTION_ESCALATION = "com.dosetap.action.ESCALATION"
+    const val EXTRA_ESCALATION_NUDGE = "extra_escalation_nudge"
+    const val EXTRA_ESCALATION_ORIGINAL_FIRED = "extra_escalation_original_fired"
 
     // ===== Refill warning =====
     const val REFILL_WARNING_NOTIFICATION_ID_BASE = 98_000
 
     // ===== Sponsor codes =====
     const val SPONSOR_CODE_LENGTH = 11  // "XXX-XXX-XXX" format
+
+    // ===== Trial =====
+    /** Duration of a sponsor/gift-code Pro trial in milliseconds (14 days). */
+    const val TRIAL_DURATION_MILLIS = 14L * 24 * 60 * 60 * 1000
+
+    // ===== Focus Timer =====
+    const val ACTION_FOCUS_TIMER_DONE = "com.dosetap.action.FOCUS_TIMER_DONE"
+    const val FOCUS_TIMER_REQUEST_CODE = 0x500_000
+    const val FOCUS_TIMER_NOTIFICATION_ID = 97_000
+    const val NOTIFICATION_CHANNEL_FOCUS = "focus_timer"
+    const val NOTIFICATION_CHANNEL_FOCUS_NAME = "Focus Timer"
+
+    // ===== Brain Dump =====
+    const val BRAIN_DUMP_MAX_ITEMS = 20
 }

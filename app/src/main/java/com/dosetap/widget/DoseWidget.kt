@@ -34,11 +34,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dosetap.DoseTapApp
 import com.dosetap.MainActivity
-import com.dosetap.R
 import com.dosetap.domain.model.ScheduledAlarm
 import com.dosetap.ui.theme.DarkColorScheme
 import com.dosetap.ui.theme.LightColorScheme
 import com.dosetap.util.TimeFormatter
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -48,7 +50,25 @@ class DoseWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val container = (context.applicationContext as DoseTapApp).container
-        val medication = withContext(Dispatchers.IO) { container.medicationDao.getFirst() }
+
+        // Resolve raw appWidgetId from GlanceId so we can look up the medication in SettingsRepository.
+        // This zip is safe here: provideGlance is called only after the widget is fully registered,
+        // so both lists are complete and in the same order.
+        val rawIds = AppWidgetManager.getInstance(context)
+            .getAppWidgetIds(ComponentName(context, DoseWidgetReceiver::class.java))
+            .toList()
+        val glanceIds = GlanceAppWidgetManager(context).getGlanceIds(DoseWidget::class.java)
+        val rawId = rawIds.zip(glanceIds).find { (_, gId) -> gId == id }?.first ?: -1
+
+        val configuredMedId = if (rawId != -1)
+            container.settingsRepository.getWidgetMedication(rawId)
+        else -1L
+
+        val medication = withContext(Dispatchers.IO) {
+            if (configuredMedId != -1L)
+                container.medicationDao.getById(configuredMedId) ?: container.medicationDao.getFirst()
+            else container.medicationDao.getFirst()
+        }
         val lastDoseEvent = medication?.let {
             withContext(Dispatchers.IO) { container.doseEventDao.getLastConfirmedDose(it.id) }
         }
@@ -287,9 +307,11 @@ private fun NormalContent(
 
 private fun formatElapsed(millis: Long): String {
     val minutes = millis / 60_000
+    val hours = minutes / 60
+    val days = hours / 24
     return when {
         minutes < 60 -> "${minutes}m"
-        minutes < 60 * 24 -> "${minutes / 60}h ${minutes % 60}m"
-        else -> "${minutes / (60 * 24)}d"
+        hours < 24 -> "${hours}h ${minutes % 60}m"
+        else -> "${days}d ${hours % 24}h"
     }
 }
