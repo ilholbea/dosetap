@@ -1,16 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Calm Focus launcher foreground: a tilted pill/capsule (the dose) with a score line.
+  Sits inside the adaptive-icon safe zone (centered, well within the inner circle).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Pill shape -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,28 C43,28 34,37 34,48 L34,60 C34,71 43,80 54,80 C65,80 74,71 74,60 L74,48 C74,37 65,28 54,28 Z" />
-    <!-- Pill divider line -->
-    <path
-        android:strokeColor="#006A6A"
-        android:strokeWidth="3"
-        android:pathData="M34,54 L74,54" />
+    <group
+        android:name="pill"
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-32">
+        <!-- Soft drop shadow beneath the capsule for depth -->
+        <path
+            android:fillColor="#22000000"
+            android:pathData="M47,44 L61,44 A13,13 0 0 1 61,70 L47,70 A13,13 0 0 1 47,44 Z" />
+        <!-- Capsule body (white) -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M47,41 L61,41 A13,13 0 0 1 61,67 L47,67 A13,13 0 0 1 47,41 Z" />
+        <!-- Lower half tinted slightly (two-tone pill) -->
+        <path
+            android:fillColor="#FFE6E8FF"
+            android:pathData="M34,54 L74,54 A13,13 0 0 1 61,67 L47,67 A13,13 0 0 1 34,54 Z" />
+        <!-- Score line (indigo cut across the middle) -->
+        <path
+            android:strokeColor="#FF4E5BD6"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round"
+            android:pathData="M34,54 L74,54" />
+        <!-- Highlight glint on the upper cap -->
+        <path
+            android:fillColor="#4DFFFFFF"
+            android:pathData="M43,45 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+    </group>
 </vector>

@@ -17,8 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -100,7 +100,7 @@ fun DoctorReportScreen(onNavigateBack: () -> Unit) {
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -108,7 +108,7 @@ fun DoctorReportScreen(onNavigateBack: () -> Unit) {
                         IconButton(onClick = {
                             reportData?.let { printReport(context, it) }
                         }) {
-                            Icon(Icons.Filled.Print, contentDescription = "Print / Save PDF")
+                            Icon(Icons.Rounded.Print, contentDescription = "Print / Save PDF")
                         }
                     }
                 },
@@ -305,7 +305,7 @@ fun DoctorReportScreen(onNavigateBack: () -> Unit) {
                     onClick = { reportData?.let { printReport(context, it) } },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Filled.Print, contentDescription = null)
+                    Icon(Icons.Rounded.Print, contentDescription = null)
                     Text("Save as PDF / Print", modifier = Modifier.padding(start = 8.dp))
                 }
             }

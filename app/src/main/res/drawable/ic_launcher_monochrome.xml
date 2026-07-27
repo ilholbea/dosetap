@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Monochrome layer for Android 13+ themed icons. Single silhouette; the system applies its
+  own tint. The score line is a real gap in the shape (evenOdd) so it survives tinting.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-32">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M47,41 L61,41 A13,13 0 0 1 61,67 L47,67 A13,13 0 0 1 47,41 Z
+                              M36,52.4 L72,52.4 L72,55.6 L36,55.6 Z" />
+    </group>
+</vector>

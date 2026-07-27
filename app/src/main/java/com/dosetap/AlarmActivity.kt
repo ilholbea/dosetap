@@ -20,8 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -199,7 +199,7 @@ private fun AlarmContent(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Filled.Alarm,
+                imageVector = Icons.Rounded.Alarm,
                 contentDescription = null,
                 modifier = Modifier.size(48.dp),
                 tint = primaryColor,
@@ -277,7 +277,7 @@ private fun AlarmContent(
                 ),
             ) {
                 Icon(
-                    Icons.Filled.CheckCircle,
+                    Icons.Rounded.CheckCircle,
                     contentDescription = null,
                     modifier = Modifier.size(22.dp),
                 )

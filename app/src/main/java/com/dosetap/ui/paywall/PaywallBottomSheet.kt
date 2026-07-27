@@ -18,16 +18,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import com.dosetap.ui.theme.accents
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.LocalPharmacy
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.LocalPharmacy
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -199,9 +200,9 @@ fun PaywallBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                ProFeatureRow(Icons.Filled.CalendarMonth, "Doctor visit report PDF", "Print-ready summary to bring to your next appointment")
-                ProFeatureRow(Icons.Filled.BarChart, "90-day adherence heatmap", "The picture you show your psychiatrist")
-                ProFeatureRow(Icons.Filled.Star, "Sponsor a friend", "Pro you buy includes a Pro you give — one free unlock to share")
+                ProFeatureRow(Icons.Rounded.CalendarMonth, "Doctor visit report PDF", "Print-ready summary to bring to your next appointment", accents().blue)
+                ProFeatureRow(Icons.Rounded.BarChart, "90-day adherence heatmap", "The picture you show your psychiatrist", accents().violet)
+                ProFeatureRow(Icons.Rounded.Star, "Sponsor a friend", "Pro you buy includes a Pro you give — one free unlock to share", accents().pink)
             }
 
             // Expandable "more features"
@@ -222,10 +223,10 @@ fun PaywallBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ProFeatureRow(Icons.Filled.Notifications, "Smart escalation reminders", "+10 and +25 min nudges if you don't log")
-                    ProFeatureRow(Icons.Filled.LocalPharmacy, "Prescription refill prediction", "Know exactly when to book your psych appointment")
-                    ProFeatureRow(Icons.Filled.Schedule, "Up to 4 follow-up reminders", "Free includes 2")
-                    ProFeatureRow(Icons.Filled.MusicNote, "Custom alarm tone", "Use any sound on your phone")
+                    ProFeatureRow(Icons.Rounded.Notifications, "Smart escalation reminders", "+10 and +25 min nudges if you don't log", accents().coral)
+                    ProFeatureRow(Icons.Rounded.LocalPharmacy, "Prescription refill prediction", "Know exactly when to book your psych appointment", accents().teal)
+                    ProFeatureRow(Icons.Rounded.Schedule, "Up to 4 follow-up reminders", "Free includes 2", accents().amber)
+                    ProFeatureRow(Icons.Rounded.MusicNote, "Custom alarm tone", "Use any sound on your phone", accents().green)
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -331,25 +332,13 @@ private fun ProFeatureRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    accent: Color,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        com.dosetap.ui.theme.IconChip(icon = icon, accent = accent)
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -364,7 +353,7 @@ private fun ProFeatureRow(
             )
         }
         Icon(
-            Icons.Filled.CheckCircle,
+            Icons.Rounded.CheckCircle,
             contentDescription = null,
             tint = Color(0xFF2E7D32),
             modifier = Modifier.size(18.dp),

@@ -27,27 +27,29 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import com.dosetap.ui.theme.IconChip
+import com.dosetap.ui.theme.accents
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Battery0Bar
-import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CardGiftcard
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.LocalPharmacy
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Battery0Bar
+import androidx.compose.material.icons.rounded.BatteryFull
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.CardGiftcard
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.LocalPharmacy
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Upload
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.AlertDialog
@@ -229,7 +231,7 @@ fun SettingsScreen(
                             contentDescription = context.getString(R.string.cd_back_button)
                         }
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -297,7 +299,7 @@ fun SettingsScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Icon(Icons.Rounded.Add, contentDescription = null)
                         Text("Add medication", modifier = Modifier.padding(start = 8.dp))
                         if (!canAdd) {
                             Spacer(Modifier.weight(1f))
@@ -358,7 +360,7 @@ fun SettingsScreen(
                         onClick = onNavigateToReport,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Filled.CalendarMonth, contentDescription = null)
+                        Icon(Icons.Rounded.CalendarMonth, contentDescription = null)
                         Text("Doctor Visit Report (PDF)", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -502,7 +504,7 @@ private fun MedicationSection(
                             onClick = { editing = true },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Text(stringResource(R.string.settings_medication_edit), modifier = Modifier.padding(start = 6.dp))
                         }
                         if (canDelete) {
@@ -510,7 +512,7 @@ private fun MedicationSection(
                                 onClick = onDelete,
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                             ) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                                Icon(Icons.Rounded.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -568,7 +570,7 @@ private fun MedicationSection(
 
                 if (followUps.size < FeatureFlag.maxFollowUps(isPro)) {
                     TextButton(onClick = { followUps.add(60) }) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Icon(Icons.Rounded.Add, contentDescription = null)
                         Text(stringResource(R.string.onboarding_medication_add_followup))
                     }
                 }
@@ -580,7 +582,7 @@ private fun MedicationSection(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
+                    IconChip(Icons.Rounded.AccessTime, accents().amber, size = 34.dp, iconSize = 18.dp)
                     Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
                         Text("Late-dose warning", style = MaterialTheme.typography.bodySmall)
                         Text(
@@ -599,7 +601,7 @@ private fun MedicationSection(
 
                 // Alarm tone row (Pro)
                 ProFeatureRow(
-                    icon = { Icon(Icons.Filled.MusicNote, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    icon = { IconChip(Icons.Rounded.MusicNote, accents().green, size = 34.dp, iconSize = 18.dp) },
                     label = "Alarm tone",
                     sublabel = soundDisplayName(),
                     isPro = isPro,
@@ -617,7 +619,7 @@ private fun MedicationSection(
 
                 // Daily reminder row (Pro)
                 ProFeatureRow(
-                    icon = { Icon(Icons.Filled.Notifications, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    icon = { IconChip(Icons.Rounded.Notifications, accents().coral, size = 34.dp, iconSize = 18.dp) },
                     label = "Daily reminder",
                     sublabel = minutesToDisplay(dailyReminderMinutes),
                     isPro = isPro,
@@ -656,7 +658,7 @@ private fun MedicationSection(
                         )
                     }
                     Icon(
-                        if (showAdvanced) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        if (showAdvanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                         contentDescription = if (showAdvanced) "Collapse" else "Expand",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -670,7 +672,7 @@ private fun MedicationSection(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                        IconChip(Icons.Rounded.CalendarMonth, accents().violet, size = 34.dp, iconSize = 18.dp)
                         Text(
                             "Off-days (no reminder)",
                             style = MaterialTheme.typography.bodySmall,
@@ -709,7 +711,7 @@ private fun MedicationSection(
                     // Effect window (Pro)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     ProFeatureRow(
-                        icon = { Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        icon = { IconChip(Icons.Rounded.Schedule, accents().blue, size = 34.dp, iconSize = 18.dp) },
                         label = "Effect window",
                         sublabel = if (durationMinutes == null) "Not set"
                         else "${durationMinutes!! / 60}h ${durationMinutes!! % 60}min",
@@ -727,7 +729,7 @@ private fun MedicationSection(
                     // Pill count (Pro)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     ProFeatureRow(
-                        icon = { Icon(Icons.Filled.LocalPharmacy, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        icon = { IconChip(Icons.Rounded.LocalPharmacy, accents().teal, size = 34.dp, iconSize = 18.dp) },
                         label = "Pill count tracking",
                         sublabel = if (pillCount == null) "Disabled" else "$pillCount pills remaining",
                         isPro = isPro,
@@ -759,7 +761,7 @@ private fun MedicationSection(
                     // Prescription refill prediction (Pro)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     ProFeatureRow(
-                        icon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        icon = { IconChip(Icons.Rounded.CalendarMonth, accents().pink, size = 34.dp, iconSize = 18.dp) },
                         label = "Prescription refill prediction",
                         sublabel = if (prescriptionDate > 0L && daysSupply != null) {
                             val runOutMillis = prescriptionDate + daysSupply!! * 24L * 60 * 60 * 1000
@@ -1003,7 +1005,7 @@ private fun ReliabilitySection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = if (isBatteryOptimized) Icons.Filled.Battery0Bar else Icons.Filled.BatteryFull,
+                    imageVector = if (isBatteryOptimized) Icons.Rounded.Battery0Bar else Icons.Rounded.BatteryFull,
                     contentDescription = null,
                     tint = if (isBatteryOptimized) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
@@ -1041,7 +1043,7 @@ private fun ReliabilitySection(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Warning, contentDescription = null)
+                        Icon(Icons.Rounded.Warning, contentDescription = null)
                         Text(
                             text = stringResource(R.string.reliability_oem_warning_title, oemName),
                             style = MaterialTheme.typography.titleSmall,
@@ -1073,7 +1075,7 @@ private fun ReliabilitySection(
             onClick = onTestReminder,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Filled.Notifications, contentDescription = null)
+            Icon(Icons.Rounded.Notifications, contentDescription = null, tint = accents().amber)
             Text(
                 text = if (testReminderScheduled)
                     stringResource(R.string.settings_test_reminder_scheduled)
@@ -1098,7 +1100,7 @@ private fun DataSection(
             onClick = if (isPro) onExport else onShowPaywall,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Filled.Download, contentDescription = null)
+            Icon(Icons.Rounded.Download, contentDescription = null, tint = accents().blue)
             Text("Export backup (JSON)", modifier = Modifier.padding(start = 8.dp))
             if (!isPro) {
                 Spacer(Modifier.weight(1f))
@@ -1109,7 +1111,7 @@ private fun DataSection(
             onClick = if (isPro) onImport else onShowPaywall,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Filled.Upload, contentDescription = null)
+            Icon(Icons.Rounded.Upload, contentDescription = null, tint = accents().teal)
             Text("Import backup", modifier = Modifier.padding(start = 8.dp))
             if (!isPro) {
                 Spacer(Modifier.weight(1f))
@@ -1121,7 +1123,7 @@ private fun DataSection(
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
         ) {
-            Icon(Icons.Filled.Delete, contentDescription = null)
+            Icon(Icons.Rounded.Delete, contentDescription = null)
             Text(stringResource(R.string.settings_delete_data), modifier = Modifier.padding(start = 8.dp))
         }
     }
@@ -1167,7 +1169,7 @@ private fun ProBadge(onClick: (() -> Unit)?) {
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Icon(
-            Icons.Filled.Lock,
+            Icons.Rounded.Lock,
             contentDescription = null,
             modifier = Modifier.size(10.dp),
             tint = Color(0xFFF57F17),
@@ -1214,7 +1216,7 @@ private fun SponsorSection(container: com.dosetap.AppContainer) {
     Card {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.CardGiftcard, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Rounded.CardGiftcard, contentDescription = null, tint = accents().pink)
                 Text(
                     "Give a 2-week trial to a friend",
                     style = MaterialTheme.typography.titleSmall,
@@ -1255,7 +1257,7 @@ private fun SponsorSection(container: com.dosetap.AppContainer) {
                             copied = false
                         }
                     }) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                         Text(if (copied) "Copied!" else "Copy", modifier = Modifier.padding(start = 4.dp))
                     }
                 }

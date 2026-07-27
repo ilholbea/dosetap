@@ -30,12 +30,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -114,7 +114,7 @@ fun FocusTimerScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -304,7 +304,7 @@ private fun TimerRing(state: FocusUiState) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (state.isComplete) {
                 Icon(
-                    Icons.Filled.CheckCircle,
+                    Icons.Rounded.CheckCircle,
                     contentDescription = null,
                     tint = Color(0xFF43A047),
                     modifier = Modifier.size(48.dp),
@@ -396,7 +396,7 @@ private fun TimerControls(
                         containerColor = Color(0xFF43A047),
                     ),
                 ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                    Icon(Icons.Rounded.Refresh, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("New session", fontWeight = FontWeight.SemiBold)
                 }
@@ -411,7 +411,7 @@ private fun TimerControls(
                         onClick = onPause,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Filled.Pause, contentDescription = null)
+                        Icon(Icons.Rounded.Pause, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Pause")
                     }
@@ -419,7 +419,7 @@ private fun TimerControls(
                         onClick = onReset,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Filled.Stop, contentDescription = null)
+                        Icon(Icons.Rounded.Stop, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Stop")
                     }
@@ -431,7 +431,7 @@ private fun TimerControls(
                     onClick = onStart,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = if (state.isPaused) "Resume" else "Start",

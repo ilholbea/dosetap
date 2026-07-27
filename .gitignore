@@ -24,3 +24,5 @@ google-services.json
 # Signing keystore (never commit)
 dosetap-release.keystore
 *.keystore
+.java_home
+.kotlin/

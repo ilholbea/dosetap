@@ -19,12 +19,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Medication
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Medication
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -95,7 +95,7 @@ fun HistoryScreen(onNavigateBack: () -> Unit) {
                             contentDescription = context.getString(R.string.cd_back_button)
                         }
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -143,7 +143,7 @@ fun HistoryScreen(onNavigateBack: () -> Unit) {
                         onClick = { viewModel.setFilter(DoseAction.TAKEN) },
                         label = { Text(stringResource(R.string.history_filter_taken)) },
                         leadingIcon = {
-                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -158,7 +158,7 @@ fun HistoryScreen(onNavigateBack: () -> Unit) {
                         onClick = { viewModel.setFilter(DoseAction.SNOOZED) },
                         label = { Text(stringResource(R.string.history_filter_snoozed)) },
                         leadingIcon = {
-                            Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -183,7 +183,7 @@ fun HistoryScreen(onNavigateBack: () -> Unit) {
                         onClick = { viewModel.setFilter(DoseAction.MISSED) },
                         label = { Text(stringResource(R.string.history_filter_missed)) },
                         leadingIcon = {
-                            Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.errorContainer,
@@ -201,7 +201,7 @@ fun HistoryScreen(onNavigateBack: () -> Unit) {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Filled.Schedule,
+                            Icons.Rounded.Schedule,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.outlineVariant,
                             modifier = Modifier.size(48.dp),
@@ -298,23 +298,24 @@ private fun HistoryEventRow(event: DoseEvent, onDelete: () -> Unit) {
         },
     ) {
 
+    val acc = com.dosetap.ui.theme.accents()
     val (icon, containerColor, iconTint, label) = when (event.action) {
         DoseAction.INITIAL_TAP -> Quadruple(
-            Icons.Filled.Medication,
-            MaterialTheme.colorScheme.primaryContainer,
-            MaterialTheme.colorScheme.primary,
+            Icons.Rounded.Medication,
+            acc.indigo.copy(alpha = 0.16f),
+            acc.indigo,
             stringResource(R.string.dose_action_initial_tap),
         )
         DoseAction.TAKEN -> Quadruple(
-            Icons.Filled.CheckCircle,
-            MaterialTheme.colorScheme.primaryContainer,
-            MaterialTheme.colorScheme.primary,
+            Icons.Rounded.CheckCircle,
+            acc.green.copy(alpha = 0.16f),
+            acc.green,
             stringResource(R.string.dose_action_taken),
         )
         DoseAction.SNOOZED -> Quadruple(
-            Icons.Filled.Schedule,
-            MaterialTheme.colorScheme.secondaryContainer,
-            MaterialTheme.colorScheme.secondary,
+            Icons.Rounded.Schedule,
+            acc.blue.copy(alpha = 0.16f),
+            acc.blue,
             stringResource(R.string.dose_action_snoozed),
         )
         DoseAction.SKIPPED -> Quadruple(
@@ -324,9 +325,9 @@ private fun HistoryEventRow(event: DoseEvent, onDelete: () -> Unit) {
             stringResource(R.string.dose_action_skipped),
         )
         DoseAction.MISSED -> Quadruple(
-            Icons.Filled.Warning,
-            MaterialTheme.colorScheme.errorContainer,
-            MaterialTheme.colorScheme.error,
+            Icons.Rounded.Warning,
+            acc.coral.copy(alpha = 0.16f),
+            acc.coral,
             stringResource(R.string.dose_action_missed),
         )
     }
@@ -376,7 +377,7 @@ private fun HistoryEventRow(event: DoseEvent, onDelete: () -> Unit) {
             }
             IconButton(onClick = onDelete) {
                 Icon(
-                    Icons.Filled.Delete,
+                    Icons.Rounded.Delete,
                     contentDescription = stringResource(R.string.history_delete_title),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),

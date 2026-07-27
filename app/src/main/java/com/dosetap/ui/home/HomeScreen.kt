@@ -43,19 +43,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Medication
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Medication
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.AlertDialog
@@ -303,7 +303,7 @@ fun HomeScreen(
                     if (!isPro) {
                         TextButton(onClick = { showPaywall = true }) {
                             Icon(
-                                Icons.Filled.Star,
+                                Icons.Rounded.Star,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = Color(0xFFF57F17),
@@ -318,14 +318,14 @@ fun HomeScreen(
                         }
                     }
                     IconButton(onClick = onNavigateToStats) {
-                        Icon(Icons.Filled.BarChart, contentDescription = "Stats")
+                        Icon(Icons.Rounded.BarChart, contentDescription = "Stats", tint = com.dosetap.ui.theme.accents().violet)
                     }
                     IconButton(onClick = onNavigateToHistory) {
-                        Icon(Icons.Filled.History, contentDescription = "History")
+                        Icon(Icons.Rounded.History, contentDescription = "History", tint = com.dosetap.ui.theme.accents().blue)
                     }
                     Box {
                         IconButton(onClick = { showOverflowMenu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "More")
                         }
                         DropdownMenu(
                             expanded = showOverflowMenu,
@@ -333,12 +333,12 @@ fun HomeScreen(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Settings") },
-                                leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                                leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                                 onClick = { showOverflowMenu = false; onNavigateToSettings() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Log for earlier time") },
-                                leadingIcon = { Icon(Icons.Filled.Schedule, null) },
+                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
                                 onClick = {
                                     showOverflowMenu = false
                                     if (uiState.medication != null) showBackdateDialog = true
@@ -346,7 +346,7 @@ fun HomeScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text(if (uiState.isPaused) "Resume reminders" else "Pause reminders") },
-                                leadingIcon = { Icon(if (uiState.isPaused) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsOff, null) },
+                                leadingIcon = { Icon(if (uiState.isPaused) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff, null) },
                                 onClick = {
                                     showOverflowMenu = false
                                     if (uiState.isPaused) viewModel.resumeReminders() else showPauseDialog = true
@@ -354,7 +354,7 @@ fun HomeScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Help & tips") },
-                                leadingIcon = { Icon(Icons.Filled.Info, null) },
+                                leadingIcon = { Icon(Icons.Rounded.Info, null) },
                                 onClick = { showOverflowMenu = false; showHelpSheet = true },
                             )
                         }
@@ -1458,7 +1458,7 @@ private fun PausedBanner(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Filled.NotificationsOff,
+                imageVector = Icons.Rounded.NotificationsOff,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.size(20.dp),
@@ -1575,7 +1575,7 @@ private fun FirstDoseOverlay(message: String?, bonus: Boolean = false, onDismiss
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            Icons.Filled.CheckCircle,
+                            Icons.Rounded.CheckCircle,
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
                             tint = MaterialTheme.colorScheme.primary,

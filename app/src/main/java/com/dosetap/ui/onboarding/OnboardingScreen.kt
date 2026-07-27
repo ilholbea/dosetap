@@ -35,10 +35,11 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import com.dosetap.ui.theme.accents
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -547,7 +548,7 @@ private fun PresetRow(
             }
             if (selected) {
                 Icon(
-                    Icons.Filled.CheckCircle,
+                    Icons.Rounded.CheckCircle,
                     contentDescription = "Selected",
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -749,7 +750,7 @@ private fun AnchorRow(
             )
             if (selected) {
                 Icon(
-                    Icons.Filled.CheckCircle,
+                    Icons.Rounded.CheckCircle,
                     contentDescription = "Selected",
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -815,10 +816,10 @@ private fun PermissionsStep(
         ) {
             Spacer(Modifier.height(24.dp))
             Icon(
-                imageVector = Icons.Filled.NotificationsActive,
+                imageVector = Icons.Rounded.NotificationsActive,
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accents().coral,
             )
             Spacer(Modifier.height(16.dp))
             Text(
@@ -858,7 +859,7 @@ private fun PermissionsStep(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Filled.NotificationsActive,
+                        Icons.Rounded.NotificationsActive,
                         contentDescription = null,
                         tint = if (notificationsGranted) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -873,7 +874,7 @@ private fun PermissionsStep(
                         )
                     }
                     if (notificationsGranted) {
-                        Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.CheckCircle, null, tint = accents().green)
                     }
                 }
             }
@@ -913,7 +914,7 @@ private fun PermissionsStep(
                         )
                     }
                     if (!batteryOptimized) {
-                        Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.CheckCircle, null, tint = accents().green)
                     }
                 }
             }
@@ -952,7 +953,7 @@ private fun PermissionsStep(
                             )
                         }
                         if (exactAlarmGranted) {
-                            Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Rounded.CheckCircle, null, tint = accents().green)
                         }
                     }
                 }
@@ -991,10 +992,10 @@ private fun PinWidgetStep(onComplete: () -> Unit) {
             verticalArrangement = Arrangement.Center,
         ) {
             Icon(
-                imageVector = Icons.Filled.Widgets,
+                imageVector = Icons.Rounded.Widgets,
                 contentDescription = null,
                 modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accents().violet,
             )
             Spacer(Modifier.height(24.dp))
             Text(

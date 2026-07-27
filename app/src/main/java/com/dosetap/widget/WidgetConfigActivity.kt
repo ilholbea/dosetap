@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -187,7 +187,7 @@ class WidgetConfigActivity : ComponentActivity() {
                                                 }
                                             }
                                             Icon(
-                                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(20.dp),
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,

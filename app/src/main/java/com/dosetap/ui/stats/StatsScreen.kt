@@ -27,9 +27,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -125,7 +125,7 @@ fun StatsScreen(onNavigateBack: () -> Unit) {
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -326,7 +326,7 @@ private fun MilestoneCard(streakDays: Int, onDismiss: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Filled.EmojiEvents,
+                imageVector = Icons.Rounded.EmojiEvents,
                 contentDescription = null,
                 tint = tint,
                 modifier = Modifier.size(28.dp),
@@ -346,7 +346,7 @@ private fun MilestoneCard(streakDays: Int, onDismiss: () -> Unit) {
                 )
             }
             IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = tint.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                Icon(Icons.Rounded.Close, contentDescription = "Dismiss", tint = tint.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
             }
         }
     }
