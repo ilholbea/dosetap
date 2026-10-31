@@ -20,13 +20,17 @@ import java.security.MessageDigest
  *                                 from the hashes; but a leaked code can't be revoked without an
  *                                 app update (no backend — offline app). Keep the plaintext list
  *                                 private.
- *  - [CodeResult.SponsorGift]   — starts a 14-day Pro trial. Hashes in res/raw/gift_codes.txt.
+ *  - [CodeResult.SponsorGift]   — starts a 14-day Pro trial. Hashes in res/raw/gift_codes.txt,
+ *                                 plus friend codes generated in-app by [SponsorCodeManager].
  *
  * To mint a new permanent gift code:
  *   printf '%s' "DOSETAP-XXXXX-XXXXX" | sha256sum
  * Paste the hash into res/raw/premium_codes.txt and rebuild. (Uppercase; validate() uppercases.)
  */
-class GiftCodeManager(private val context: Context) {
+class GiftCodeManager(
+    private val context: Context,
+    private val sponsorCodeManager: SponsorCodeManager,
+) {
 
     enum class CodeResult { DevGrant, PermanentGift, SponsorGift, Invalid }
 
@@ -62,6 +66,8 @@ class GiftCodeManager(private val context: Context) {
             hash in devGrantHashes -> CodeResult.DevGrant
             hash in premiumHashes -> CodeResult.PermanentGift
             hash in giftHashes -> CodeResult.SponsorGift
+            // A friend's in-app "Give a 2-week trial" code — same reward as a sponsor gift code.
+            sponsorCodeManager.isValidSponsorCode(code) -> CodeResult.SponsorGift
             else -> CodeResult.Invalid
         }
     }

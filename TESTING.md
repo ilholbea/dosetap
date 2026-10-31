@@ -72,6 +72,25 @@ adb shell am broadcast -a com.dosetap.ALARM_TEST
 3. Open DoseTap. Verify timezone-change banner appears.
 4. Verify alarms still exist in `adb shell dumpsys alarm | grep dosetap`.
 
+### Test 9: Answer from the notification button (regression)
+1. Add a medication with +4h and +8h follow-ups (use short test offsets if needed).
+2. Log a dose. When the first reminder fires, tap **Taken** on the notification itself (not the
+   full-screen screen).
+3. Verify the second reminder still fires. Repeat with **Skip**.
+4. Tap **Stop today** on a reminder — verify no further reminders for that dose.
+
+### Test 10: Night shift across midnight
+1. Log a dose at ~22:00.
+2. After midnight, verify: lock-screen status still shows the dose as taken (no "Log dose"
+   button), Home shows it as taken, and post-midnight follow-ups fire.
+3. Tap the widget after midnight — verify it refuses with "Already logged at 22:00…".
+
+### Test 11: Exact-alarm permission (Android 14+)
+1. Fresh install, deny exact alarms. Log a dose; `adb shell dumpsys alarm | grep dosetap`
+   shows the follow-ups as inexact (no `EXACT` flag).
+2. Grant exact alarms (Home banner → Allow). Without logging again, re-check `dumpsys` — the
+   same follow-ups are now exact.
+
 ---
 
 ## OEM-Specific Tests

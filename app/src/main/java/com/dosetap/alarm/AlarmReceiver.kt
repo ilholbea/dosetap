@@ -11,11 +11,11 @@ import android.util.Log
 import com.dosetap.AppContainer
 import com.dosetap.DoseTapApp
 import com.dosetap.MainActivity
+import com.dosetap.domain.DoseTiming
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
 import com.dosetap.domain.model.FeatureFlag
 import com.dosetap.util.Constants
-import com.dosetap.util.TimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -134,6 +134,7 @@ class AlarmReceiver : BroadcastReceiver() {
             doseEventId = doseEventId,
             tapId = tapId,
             notificationId = notificationId,
+            followUpIndex = followUpIndex,
             bodyText = medication.name,
         )
 
@@ -148,7 +149,9 @@ class AlarmReceiver : BroadcastReceiver() {
         // Smart escalation (Pro): if the user doesn't engage, re-nudge at +10 and +25 min.
         // Real follow-ups only (test alarms use tapId = -1). Cancelled the instant any dose
         // log or action arrives; guarded again at fire time (paused / already-logged / Pro).
-        if (tapId != -1L && FeatureFlag.canUseSmartEscalation(container.isPro.first())) {
+        // isProNow(), not isPro.first(): this receiver usually runs in a cold process where the
+        // StateFlow still holds its `false` placeholder, which silently disabled escalation.
+        if (tapId != -1L && FeatureFlag.canUseSmartEscalation(container.isProNow())) {
             container.alarmScheduler.scheduleEscalation(
                 medicationId = medicationId,
                 tapId = tapId,
@@ -158,20 +161,19 @@ class AlarmReceiver : BroadcastReceiver() {
             )
         }
 
-        container.refreshWidgets()
         // Update ambient notification to show no-dose-yet state after alarm fires
         container.refreshAmbient()
+        container.updateWidgetsNow()
         Log.d(TAG, "Notification posted: id=$notificationId for medication=${medication.name}")
     }
 
     private suspend fun handleDailyReminder(context: Context, container: AppContainer, medicationId: Long) {
         val medication = container.medicationDao.getById(medicationId) ?: return
 
-        val todayStart = TimeFormatter.startOfDay(System.currentTimeMillis())
-        val todayEvents = container.doseEventDao.getForMedicationSince(medicationId, todayStart)
-        val hasTakenToday = todayEvents.any {
-            it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN
-        }
+        // Shift-aware: a dose from before midnight that is still in its cycle counts as taken.
+        val lastDose = container.doseEventDao.getLastConfirmedDose(medicationId)
+        val hasTakenToday = lastDose != null &&
+            DoseTiming.isCurrent(lastDose.actionedAt, medication, System.currentTimeMillis())
 
         if (!hasTakenToday) {
             val openAppPi = PendingIntent.getActivity(

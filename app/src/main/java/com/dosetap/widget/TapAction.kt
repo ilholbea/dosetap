@@ -3,7 +3,10 @@ package com.dosetap.widget
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
@@ -14,6 +17,7 @@ import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import com.dosetap.DoseTapApp
 import com.dosetap.util.Constants
+import com.dosetap.util.TimeFormatter
 
 private const val TAG = "TapAction"
 
@@ -76,6 +80,24 @@ class TapAction : ActionCallback {
         else container.medicationDao.getFirst()
         if (medication == null) {
             Log.w(TAG, "Widget tapped but no medication found")
+            return
+        }
+
+        // Double-dose guard: the widget can't show the app's confirm dialog, so inside the last
+        // dose's window it refuses rather than logging a second dose from a pocket tap.
+        val conflict = container.logDoseUseCase.findDoubleDoseConflict(medication.id, nowMillis)
+        if (conflict != null) {
+            Log.d(TAG, "Widget tap refused — dose already logged at ${conflict.actionedAt}")
+            updateAppWidgetState(context, glanceId) { prefs -> prefs[LastTapTimeKey] = nowMillis }
+            val time = TimeFormatter.formatTime(context, conflict.actionedAt)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(
+                    context,
+                    "Already logged at $time — open DoseTap to log another",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            container.refreshWidgets()
             return
         }
 

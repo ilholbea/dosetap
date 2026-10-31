@@ -4,6 +4,7 @@ import android.util.Log
 import com.dosetap.alarm.AlarmScheduler
 import com.dosetap.data.db.DoseEventDao
 import com.dosetap.data.db.MedicationDao
+import com.dosetap.domain.DoseTiming
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
 
@@ -46,6 +47,10 @@ class LogDoseUseCase(
             return -1L
         }
 
+        // Only take a pill off when tracking is on and there's one to take — recorded on the event
+        // so undo restores exactly what was removed.
+        val decrementPill = medication.pillCount != null && medication.pillCount > 0
+
         // Insert initial tap event with sourceTapId = 0 (placeholder, updated next)
         val tapEventId = doseEventDao.insert(
             DoseEvent(
@@ -55,6 +60,7 @@ class LogDoseUseCase(
                 actionedAt = tapTimeMillis,
                 action = DoseAction.INITIAL_TAP,
                 sourceTapId = 0L, // will be updated to its own ID
+                pillDecremented = decrementPill,
             )
         )
 
@@ -71,9 +77,8 @@ class LogDoseUseCase(
             baseTimeMillis = tapTimeMillis,
         )
 
-        // Decrement pill count if tracking is enabled
-        if (medication.pillCount != null && medication.pillCount > 0) {
-            medicationDao.update(medication.copy(pillCount = medication.pillCount - 1))
+        if (decrementPill) {
+            medication.pillCount?.let { medicationDao.update(medication.copy(pillCount = it - 1)) }
         }
 
         // Schedule wear-off warning (free, safety-adjacent)
@@ -87,6 +92,17 @@ class LogDoseUseCase(
     }
 
     /**
+     * Returns the confirmed dose that logging [medicationId] at [tapTimeMillis] would double up on,
+     * or null when it's safe. One-tap surfaces (widget, lock-screen notification) can't show the
+     * Home screen's confirm dialog, so they call this and refuse instead of silently double-logging.
+     */
+    suspend fun findDoubleDoseConflict(medicationId: Long, tapTimeMillis: Long): DoseEvent? {
+        val medication = medicationDao.getById(medicationId) ?: return null
+        val last = doseEventDao.getLastConfirmedDose(medicationId) ?: return null
+        return last.takeIf { DoseTiming.isPossibleDoubleDose(medication, it.actionedAt, tapTimeMillis) }
+    }
+
+    /**
      * Undoes the most recent dose tap by cancelling its follow-up alarms
      * and deleting the INITIAL_TAP event.
      *
@@ -95,9 +111,18 @@ class LogDoseUseCase(
      * @param tapId The [DoseEvent.id] to undo.
      */
     suspend fun undo(tapId: Long) {
+        val event = doseEventDao.getById(tapId)
         alarmScheduler.cancelFollowUps(tapId)
         alarmScheduler.cancelWearOffWarning(tapId)
         doseEventDao.deleteById(tapId)
+
+        // Give back the pill only if [execute] actually took one off (not when logged at a count of 0).
+        if (event != null && event.pillDecremented) {
+            val medication = medicationDao.getById(event.medicationId)
+            if (medication?.pillCount != null) {
+                medicationDao.update(medication.copy(pillCount = medication.pillCount + 1))
+            }
+        }
         Log.i(TAG, "Dose undone: tapId=$tapId")
     }
 }

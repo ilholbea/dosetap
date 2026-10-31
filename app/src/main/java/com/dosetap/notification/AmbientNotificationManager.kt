@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.dosetap.MainActivity
+import com.dosetap.domain.DoseTiming
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
 import com.dosetap.domain.model.Medication
@@ -73,7 +74,7 @@ class AmbientNotificationManager(private val context: Context) {
         val nowMillis = System.currentTimeMillis()
         val anchor = medication.morningAnchor
         return when {
-            lastDose != null && isToday(lastDose.actionedAt) -> {
+            lastDose != null && isCurrent(medication, lastDose) -> {
                 val timeStr = TimeFormatter.formatTime(context, lastDose.actionedAt)
                 val elapsedStr = TimeFormatter.formatElapsedShort(nowMillis - lastDose.actionedAt)
                 // Next follow-up reminder = dose time + the soonest still-future follow-up offset.
@@ -130,7 +131,7 @@ class AmbientNotificationManager(private val context: Context) {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        val hasTakenToday = lastDose != null && isToday(lastDose.actionedAt)
+        val hasTakenToday = isCurrent(medication, lastDose)
 
         return Notification.Builder(context, Constants.NOTIFICATION_CHANNEL_AMBIENT)
             .setSmallIcon(com.dosetap.R.drawable.ic_notification_pill)
@@ -156,7 +157,7 @@ class AmbientNotificationManager(private val context: Context) {
             val (emoji, name, body) = describe(med, dose)
             "$emoji $name — $body"
         }
-        val loggedCount = items.count { (_, dose) -> dose != null && isToday(dose.actionedAt) }
+        val loggedCount = items.count { (med, dose) -> isCurrent(med, dose) }
         val summary = "$loggedCount of ${items.size} logged today"
 
         val inbox = Notification.InboxStyle().also { style ->
@@ -176,8 +177,10 @@ class AmbientNotificationManager(private val context: Context) {
             .build()
     }
 
-    private fun isToday(millis: Long): Boolean {
-        val startOfDay = TimeFormatter.startOfDay(System.currentTimeMillis())
-        return millis >= startOfDay
-    }
+    /**
+     * Shift-aware "taken": a dose from before midnight that's still in its cycle counts, so a
+     * night-shift user isn't shown "No dose logged yet" + a Log button at 2am (double-dose risk).
+     */
+    private fun isCurrent(medication: Medication, lastDose: DoseEvent?): Boolean =
+        lastDose != null && DoseTiming.isCurrent(lastDose.actionedAt, medication, System.currentTimeMillis())
 }

@@ -3,7 +3,6 @@ package com.dosetap.billing
 import android.content.Context
 import android.provider.Settings
 import android.util.Log
-import com.dosetap.data.prefs.SettingsRepository
 import java.security.MessageDigest
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -11,23 +10,23 @@ import javax.crypto.spec.SecretKeySpec
 private const val TAG = "SponsorCodeManager"
 
 /**
- * Generates and validates Sponsor-a-Friend Pro unlock codes.
+ * Generates and validates Sponsor-a-Friend codes (recipient gets the 14-day Pro trial).
  *
- * Design: no backend required.
- * - Codes are HMAC-SHA256 derived from a device-bound secret + slot number.
- * - Format: "DTP-XXXXXX-YY" where X = 6 hex chars, YY = 2-digit slot check.
- * - Pro users get 1 gift slot per device lifetime.
- * - Recipient pastes code → validated locally → Pro unlocked.
+ * Design: no backend required, and a code made on the sender's phone validates on **any** install.
+ * - Format: `DTP-NNNNNN-TTTTTT` — N = a per-device, per-slot nonce, T = a tag over that nonce.
+ * - The nonce comes from a device-bound key, so each sender gets their own stable code per slot.
+ * - The tag is an HMAC under an app-wide key, so the recipient's device can verify it offline.
  *
- * Security note: codes are bound to the sender's device ID, so a code generated
- * on device A is only valid if the HMAC matches. Brute-force is infeasible for
- * the short code lifetime window.
+ * (v1 derived the whole code from the sender's ANDROID_ID, so it only ever validated on the
+ * sender's own phone — friends could never redeem it, and no redeem path even called it.)
+ *
+ * Security note: the app key ships in the APK, so a determined reverser could mint codes. That's
+ * the same trust level as the bundled gift-code hashes and acceptable for a free 14-day trial; a
+ * blind guess has a 1 in 16.7M chance per attempt.
  */
 class SponsorCodeManager(private val context: Context) {
 
-    private val hmacKey: ByteArray by lazy {
-        // Stable secret: SHA-256 of (app package + Android ID). Not crypto-strong but
-        // sufficient for a €2.99 gift flow with no financial stakes.
+    private val deviceKey: ByteArray by lazy {
         val androidId = Settings.Secure.getString(
             context.contentResolver, Settings.Secure.ANDROID_ID
         ) ?: "unknown"
@@ -35,45 +34,37 @@ class SponsorCodeManager(private val context: Context) {
         MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
     }
 
-    /** Generate a sponsor code for the given slot index (0-based). */
+    /** Generate this device's sponsor code for the given slot index (0-based). Stable per device + slot. */
     fun generateCode(slotIndex: Int): String {
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
-        val input = "slot:$slotIndex:v1".toByteArray()
-        val digest = mac.doFinal(input)
-        val hex = digest.take(4).joinToString("") { "%02X".format(it) }
-        val check = "%02X".format(digest[4].toInt() and 0xFF)
-        return "DTP-$hex-$check"
+        val nonce = hex(hmac(deviceKey, "slot:$slotIndex:v2").copyOf(3))
+        return "DTP-$nonce-${tagFor(nonce)}"
     }
 
-    /**
-     * Validate a code entered by a potential recipient.
-     *
-     * Returns true if the code matches any of the valid slot codes for THIS device
-     * (i.e. the recipient received it from someone who generated it on this device).
-     *
-     * In practice: the device that generated the code is the SENDER's device.
-     * This validator runs on the RECIPIENT's device and always fails unless the
-     * HMAC keys match. This means self-redemption on the sender's device works
-     * trivially — which is acceptable for a social trust model.
-     *
-     * For the primary use case (developer gifts to girlfriend/friends), the developer
-     * can generate codes using a debug build or in-app, then share them.
-     */
+    /** True if [code] is a genuine sponsor code from any DoseTap install. */
     fun isValidSponsorCode(code: String): Boolean {
-        val normalized = code.trim().uppercase()
-        // Try first 10 possible slots
-        for (slot in 0 until 10) {
-            if (generateCode(slot) == normalized) {
-                Log.d(TAG, "Valid sponsor code for slot $slot")
-                return true
-            }
-        }
-        return false
+        val match = CODE_REGEX.matchEntire(code.trim().uppercase()) ?: return false
+        val (nonce, tag) = match.destructured
+        val valid = MessageDigest.isEqual(tagFor(nonce).toByteArray(), tag.toByteArray())
+        if (valid) Log.d(TAG, "Valid sponsor code")
+        return valid
     }
+
+    private fun tagFor(nonce: String): String =
+        hex(hmac(APP_KEY.toByteArray(), "sponsor:v2:$nonce").copyOf(3))
+
+    private fun hmac(key: ByteArray, input: String): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(input.toByteArray())
+    }
+
+    private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02X".format(it) }
 
     companion object {
         /** Maximum gift slots per Pro device. */
         const val MAX_SLOTS = 1
+
+        private const val APP_KEY = "dosetap-sponsor-v2:4ef903a165494f4a4fe3e28cc5c83da6dc1c9b369da3d532"
+        private val CODE_REGEX = Regex("""DTP-([0-9A-F]{6})-([0-9A-F]{6})""")
     }
 }

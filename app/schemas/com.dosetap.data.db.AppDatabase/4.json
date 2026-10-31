@@ -1,0 +1,266 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "5b02f579044e4bdaf82d84c2baa0cc9a",
+    "entities": [
+      {
+        "tableName": "medications",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `followUps` TEXT NOT NULL, `soundUri` TEXT, `dailyReminderMinutes` INTEGER, `lateCutoffMinutes` INTEGER, `pillCount` INTEGER, `refillAlertAt` INTEGER NOT NULL, `offDays` TEXT NOT NULL, `durationMinutes` INTEGER, `createdAt` INTEGER NOT NULL, `prescriptionDate` INTEGER, `daysSupply` INTEGER, `refillBufferDays` INTEGER NOT NULL, `morningAnchor` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "followUps",
+            "columnName": "followUps",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "soundUri",
+            "columnName": "soundUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "dailyReminderMinutes",
+            "columnName": "dailyReminderMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lateCutoffMinutes",
+            "columnName": "lateCutoffMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pillCount",
+            "columnName": "pillCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "refillAlertAt",
+            "columnName": "refillAlertAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "offDays",
+            "columnName": "offDays",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMinutes",
+            "columnName": "durationMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prescriptionDate",
+            "columnName": "prescriptionDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "daysSupply",
+            "columnName": "daysSupply",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "refillBufferDays",
+            "columnName": "refillBufferDays",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "morningAnchor",
+            "columnName": "morningAnchor",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "dose_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `medicationId` INTEGER NOT NULL, `scheduledAt` INTEGER, `firedAt` INTEGER, `actionedAt` INTEGER NOT NULL, `action` TEXT NOT NULL, `sourceTapId` INTEGER NOT NULL, `note` TEXT, `tags` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "medicationId",
+            "columnName": "medicationId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduledAt",
+            "columnName": "scheduledAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "firedAt",
+            "columnName": "firedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "actionedAt",
+            "columnName": "actionedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "action",
+            "columnName": "action",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceTapId",
+            "columnName": "sourceTapId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_dose_events_medicationId",
+            "unique": false,
+            "columnNames": [
+              "medicationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dose_events_medicationId` ON `${TABLE_NAME}` (`medicationId`)"
+          },
+          {
+            "name": "index_dose_events_actionedAt",
+            "unique": false,
+            "columnNames": [
+              "actionedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dose_events_actionedAt` ON `${TABLE_NAME}` (`actionedAt`)"
+          },
+          {
+            "name": "index_dose_events_sourceTapId",
+            "unique": false,
+            "columnNames": [
+              "sourceTapId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dose_events_sourceTapId` ON `${TABLE_NAME}` (`sourceTapId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "scheduled_alarms",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `tapId` INTEGER NOT NULL, `medicationId` INTEGER NOT NULL, `followUpIndex` INTEGER NOT NULL, `triggerAtMillis` INTEGER NOT NULL, `isCancelled` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tapId",
+            "columnName": "tapId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "medicationId",
+            "columnName": "medicationId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "followUpIndex",
+            "columnName": "followUpIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "triggerAtMillis",
+            "columnName": "triggerAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCancelled",
+            "columnName": "isCancelled",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_scheduled_alarms_tapId",
+            "unique": false,
+            "columnNames": [
+              "tapId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_scheduled_alarms_tapId` ON `${TABLE_NAME}` (`tapId`)"
+          },
+          {
+            "name": "index_scheduled_alarms_triggerAtMillis",
+            "unique": false,
+            "columnNames": [
+              "triggerAtMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_scheduled_alarms_triggerAtMillis` ON `${TABLE_NAME}` (`triggerAtMillis`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5b02f579044e4bdaf82d84c2baa0cc9a')"
+    ]
+  }
+}

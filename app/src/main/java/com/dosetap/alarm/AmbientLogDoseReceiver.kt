@@ -9,6 +9,7 @@ import android.util.Log
 import android.widget.Toast
 import com.dosetap.DoseTapApp
 import com.dosetap.util.Constants
+import com.dosetap.util.TimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,12 +36,23 @@ class AmbientLogDoseReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 val container = (context.applicationContext as DoseTapApp).container
-                val tapId = container.logDoseUseCase.execute(medicationId, System.currentTimeMillis())
+                val nowMillis = System.currentTimeMillis()
+                // A stale notification can still carry the button after a dose was logged
+                // elsewhere — never double-log from the lock screen; the app's confirm dialog is
+                // the only place to deliberately log a second dose.
+                val conflict = container.logDoseUseCase.findDoubleDoseConflict(medicationId, nowMillis)
+                val message = if (conflict != null) {
+                    Log.d(TAG, "Ambient log refused — dose already logged at ${conflict.actionedAt}")
+                    "Already logged at ${TimeFormatter.formatTime(context, conflict.actionedAt)} — open DoseTap to log another"
+                } else {
+                    val tapId = container.logDoseUseCase.execute(medicationId, nowMillis)
+                    Log.d(TAG, "Ambient log dose: tapId=$tapId medicationId=$medicationId")
+                    "✅ Dose logged"
+                }
                 container.refreshAmbient()
-                container.refreshWidgets()
-                Log.d(TAG, "Ambient log dose: tapId=$tapId medicationId=$medicationId")
+                container.updateWidgetsNow()
                 Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(context, "✅ Dose logged", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to log dose from ambient notification", e)

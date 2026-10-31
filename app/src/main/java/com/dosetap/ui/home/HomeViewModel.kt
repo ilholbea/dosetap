@@ -8,6 +8,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dosetap.AppContainer
+import com.dosetap.domain.DoseTiming
+import com.dosetap.domain.RefillPrediction
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.domain.model.DoseEvent
 import com.dosetap.domain.model.Medication
@@ -155,7 +157,9 @@ class HomeViewModel(
         container.medicationDao.observeAll(),
         container.settingsRepository.lastTimezoneChangeMillis,
         container.settingsRepository.skipTomorrowDate,
-    ) { medication, allMeds, lastTzChange, skipTomorrowDate ->
+        // Re-derive off-day / skip-tomorrow / refill state when the date rolls over.
+        tickerFlow.map { TimeFormatter.startOfDay(it) }.distinctUntilChanged(),
+    ) { medication, allMeds, lastTzChange, skipTomorrowDate, _ ->
         val notificationsGranted = checkNotificationsGranted()
         val tzChangedRecently = lastTzChange > 0L &&
             (System.currentTimeMillis() - lastTzChange) < 24 * 60 * 60 * 1000L
@@ -166,16 +170,13 @@ class HomeViewModel(
         val tomorrowStart = TimeFormatter.startOfDay(System.currentTimeMillis() + 24 * 60 * 60 * 1000L)
         val tomorrowSkipped = skipTomorrowDate == tomorrowStart
 
-        val dayMillis = 24L * 60 * 60 * 1000
-        val rxRefillByDateMillis: Long? = run {
-            val rxDate = medication?.prescriptionDate ?: return@run null
-            val supply = medication.daysSupply ?: return@run null
-            val buffer = medication.refillBufferDays
-            val now = System.currentTimeMillis()
-            val refillByMillis = rxDate + (supply - buffer).coerceAtLeast(0) * dayMillis
-            val daysUntilRefill = (refillByMillis - now) / dayMillis
-            // Show only when within the next `buffer * 2` days and not already past run-out.
-            if (daysUntilRefill in -1..(buffer * 2L)) refillByMillis else null
+        val rxRefillByDateMillis: Long? = medication?.let {
+            RefillPrediction.refillByMillis(
+                rxDateMillis = it.prescriptionDate,
+                daysSupply = it.daysSupply,
+                bufferDays = it.refillBufferDays,
+                nowMillis = System.currentTimeMillis(),
+            )
         }
 
         HomeUiState(
@@ -193,13 +194,18 @@ class HomeViewModel(
         )
     }
 
-    // Observe today's events scoped to the selected medication — prevents cross-medication bleed
-    private val todayEventsFlow = selectedMedFlow.flatMapLatest { medication ->
-        if (medication == null) flowOf(emptyList())
-        else container.doseEventDao.observeTodayForMedication(
-            medication.id,
-            TimeFormatter.startOfDay(System.currentTimeMillis()),
-        )
+    // Start of the current dose cycle for the selected medication, re-evaluated every tick so the
+    // screen rolls over at midnight (or when a night-shift cycle ends) without reopening the app.
+    private val cycleStartFlow = combine(selectedMedFlow, tickerFlow) { medication, nowMillis ->
+        medication?.let { it to cycleStart(it, nowMillis) }
+    }.distinctUntilChanged()
+
+    // Observe the current cycle's events scoped to the selected medication — prevents
+    // cross-medication bleed. "Today" normally means since midnight, but a night-shift dose taken
+    // before midnight keeps its cycle (and its "taken" state) until that cycle ends.
+    private val todayEventsFlow = cycleStartFlow.flatMapLatest { selection ->
+        if (selection == null) flowOf(emptyList())
+        else container.doseEventDao.observeTodayForMedication(selection.first.id, selection.second)
     }
 
     // Effect window and elapsed time (rebuilt each ticker tick)
@@ -505,10 +511,18 @@ class HomeViewModel(
         }
     }
 
-    private suspend fun buildWarning(medication: Medication, tapTimeMillis: Long): DoseWarning? {
-        val todayStart = TimeFormatter.startOfDay(tapTimeMillis)
-        val todayEvents = container.doseEventDao.getForMedicationSince(medication.id, todayStart)
+    /** Midnight, unless the last confirmed dose predates it but is still in its cycle (night shift). */
+    private suspend fun cycleStart(medication: Medication, nowMillis: Long): Long {
+        val dayStart = TimeFormatter.startOfDay(nowMillis)
+        val last = container.doseEventDao.getLastConfirmedDose(medication.id) ?: return dayStart
+        return if (last.actionedAt < dayStart && DoseTiming.isCurrent(last.actionedAt, medication, nowMillis)) {
+            last.actionedAt
+        } else {
+            dayStart
+        }
+    }
 
+    private suspend fun buildWarning(medication: Medication, tapTimeMillis: Long): DoseWarning? {
         if (medication.offDays.isNotEmpty()) {
             val cal = Calendar.getInstance().apply { timeInMillis = tapTimeMillis }
             val dow = cal.get(Calendar.DAY_OF_WEEK)
@@ -536,32 +550,16 @@ class HomeViewModel(
             }
         }
 
-        val durationMinutes = medication.durationMinutes
-        if (durationMinutes != null) {
-            val lastTap = todayEvents.lastOrNull {
-                it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN
+        // Checked against the last confirmed dose regardless of calendar day — a dose at 23:00
+        // must still warn at 01:00 (the old since-midnight query missed it on night shifts).
+        val lastDose = container.doseEventDao.getLastConfirmedDose(medication.id)
+        if (DoseTiming.isPossibleDoubleDose(medication, lastDose?.actionedAt, tapTimeMillis)) {
+            val message = if (medication.durationMinutes != null) {
+                "${medication.name} may still be active. Logging another dose so soon could cause double-dosing. Are you sure?"
+            } else {
+                "You already logged a dose of ${medication.name} less than 3 hours ago. Log another?"
             }
-            if (lastTap != null) {
-                val effectWindowEnd = lastTap.actionedAt + durationMinutes * 60_000L
-                if (tapTimeMillis < effectWindowEnd) {
-                    return DoseWarning(
-                        type = DoseWarningType.DOUBLE_DOSE,
-                        message = "${medication.name} may still be active. Logging another dose so soon could cause double-dosing. Are you sure?",
-                    )
-                }
-            }
-        } else {
-            val recentThreshold = tapTimeMillis - 3 * 60 * 60 * 1000L
-            val recentTap = todayEvents.lastOrNull {
-                (it.action == DoseAction.INITIAL_TAP || it.action == DoseAction.TAKEN) &&
-                    it.actionedAt >= recentThreshold
-            }
-            if (recentTap != null) {
-                return DoseWarning(
-                    type = DoseWarningType.DOUBLE_DOSE,
-                    message = "You already logged a dose of ${medication.name} less than 3 hours ago. Log another?",
-                )
-            }
+            return DoseWarning(type = DoseWarningType.DOUBLE_DOSE, message = message)
         }
 
         return null

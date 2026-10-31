@@ -14,6 +14,14 @@ private const val TAG = "HandleDoseActionUseCase"
  *
  * Updates the [com.dosetap.domain.model.DoseEvent] originally written as MISSED by [com.dosetap.alarm.AlarmReceiver],
  * and for snooze: reschedules a new alarm.
+ *
+ * Single source of truth for both surfaces — the notification buttons ([com.dosetap.alarm.DoseActionReceiver])
+ * and the full-screen [com.dosetap.AlarmActivity]. They used to diverge: the notification path
+ * cancelled every remaining follow-up on Taken/Skip, so later reminders silently never came when
+ * the user answered from the notification but did when they answered from the alarm screen.
+ *
+ * Taken / Skip answer **this** reminder only. The rest of the follow-up chain stays armed (TESTING.md
+ * Test 1: tap Taken on the +4h alarm, the +8h alarm still fires). Use "Stop today" to end a chain.
  */
 class HandleDoseActionUseCase(
     private val doseEventDao: DoseEventDao,
@@ -49,20 +57,33 @@ class HandleDoseActionUseCase(
         // For SNOOZED the snoozed follow-up re-arms a fresh chain when it fires.
         alarmScheduler.cancelEscalation(event.medicationId)
 
-        if (action == DoseAction.SNOOZED) {
-            val medication = medicationDao.getById(event.medicationId)
-            if (medication != null) {
-                val snoozeTriggerAt = nowMillis + Constants.SNOOZE_DURATION_MILLIS
-                // Re-ping under the original tap so the remaining follow-up chain survives (E-H1).
-                alarmScheduler.scheduleSnooze(
-                    tapId = event.sourceTapId,
-                    medication = medication,
-                    triggerAtMillis = snoozeTriggerAt,
-                )
-                Log.d(TAG, "Snooze alarm scheduled at $snoozeTriggerAt")
-            } else {
-                Log.w(TAG, "Medication ${event.medicationId} not found for snooze scheduling")
+        val tapId = event.sourceTapId
+        val medication = medicationDao.getById(event.medicationId)
+        when (action) {
+            DoseAction.SNOOZED -> {
+                // Test alarms and daily reminders carry tapId = -1 and have no chain to re-ping.
+                if (medication != null && tapId != -1L) {
+                    val snoozeTriggerAt = nowMillis + Constants.SNOOZE_DURATION_MILLIS
+                    // Re-ping under the original tap so the remaining follow-up chain survives (E-H1).
+                    alarmScheduler.scheduleSnooze(
+                        tapId = tapId,
+                        medication = medication,
+                        triggerAtMillis = snoozeTriggerAt,
+                    )
+                    Log.d(TAG, "Snooze alarm scheduled at $snoozeTriggerAt")
+                } else {
+                    Log.w(TAG, "No snooze scheduled (medication=${medication?.id} tapId=$tapId)")
+                }
             }
+            DoseAction.TAKEN, DoseAction.SKIPPED -> {
+                // Answered — a pending snooze re-ping for this tap is now redundant.
+                if (tapId != -1L) alarmScheduler.cancelSnooze(tapId)
+                // A confirmed dose restarts the effect window, so move the wear-off warning to it.
+                if (action == DoseAction.TAKEN && medication != null && tapId != -1L) {
+                    alarmScheduler.scheduleWearOffWarning(tapId, medication, nowMillis)
+                }
+            }
+            else -> Unit
         }
 
         return true

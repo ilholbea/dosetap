@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import com.dosetap.data.db.AlarmDao
+import com.dosetap.data.db.DoseEventDao
 import com.dosetap.data.db.MedicationDao
 import com.dosetap.data.prefs.SettingsRepository
 import com.dosetap.domain.model.Medication
@@ -34,6 +35,7 @@ class AlarmScheduler(
     private val alarmDao: AlarmDao,
     private val medicationDao: MedicationDao,
     private val settingsRepository: SettingsRepository,
+    private val doseEventDao: DoseEventDao,
 ) {
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
@@ -47,6 +49,10 @@ class AlarmScheduler(
      * @param tapId Unique ID of the initial tap (DoseEvent.sourceTapId).
      * @param medication The medication whose follow-up intervals to use.
      * @param baseTimeMillis The UTC millis of the initial tap (alarms are baseTime + interval).
+     *
+     * Follow-ups whose time has already passed are skipped: AlarmManager fires a past-dated alarm
+     * immediately, so a backdated dose or a medication edit (which re-schedules the last tap)
+     * would otherwise set off a burst of stale reminders.
      */
     suspend fun scheduleFollowUps(
         tapId: Long,
@@ -57,9 +63,14 @@ class AlarmScheduler(
         cancelFollowUps(tapId)
 
         val alarmsToInsert = mutableListOf<ScheduledAlarm>()
+        val nowMillis = System.currentTimeMillis()
 
         medication.followUps.forEachIndexed { index, intervalMinutes ->
             val triggerAtMillis = baseTimeMillis + intervalMinutes * 60_000L
+            if (triggerAtMillis <= nowMillis) {
+                Log.d(TAG, "Skipping past follow-up tapId=$tapId index=$index (was due $triggerAtMillis)")
+                return@forEachIndexed
+            }
             val requestCode = buildRequestCode(tapId, index)
 
             val pendingIntent = buildAlarmPendingIntent(
@@ -87,6 +98,7 @@ class AlarmScheduler(
             )
         }
 
+        if (alarmsToInsert.isEmpty()) return
         alarmDao.insertAll(alarmsToInsert)
         settingsRepository.setAlarmsActive(true)
         settingsRepository.resetAlarmBanner()
@@ -104,7 +116,7 @@ class AlarmScheduler(
      */
     suspend fun scheduleSnooze(tapId: Long, medication: Medication, triggerAtMillis: Long) {
         // Replace only a previous snooze for this tap, never the real follow-up rows.
-        cancelFollowUpAt(tapId, Constants.SNOOZE_FOLLOWUP_INDEX)
+        cancelSnooze(tapId)
 
         val requestCode = buildRequestCode(tapId, Constants.SNOOZE_FOLLOWUP_INDEX)
         val pendingIntent = buildAlarmPendingIntent(
@@ -127,6 +139,9 @@ class AlarmScheduler(
         settingsRepository.setAlarmsActive(true)
         Log.d(TAG, "Snooze re-ping scheduled tapId=$tapId at $triggerAtMillis")
     }
+
+    /** Cancels a pending snooze re-ping for [tapId], leaving the real follow-up chain intact. */
+    suspend fun cancelSnooze(tapId: Long) = cancelFollowUpAt(tapId, Constants.SNOOZE_FOLLOWUP_INDEX)
 
     /** Cancels only the alarm at [index] for [tapId], leaving the rest of the chain intact. */
     private suspend fun cancelFollowUpAt(tapId: Long, index: Int) {
@@ -192,11 +207,9 @@ class AlarmScheduler(
     /**
      * Reschedules all active alarms from the database.
      *
-     * Called by [BootReceiver] after device reboot, app update, timezone change, or time set.
+     * Called by [BootReceiver] after device reboot, app update, timezone change, time set, or an
+     * exact-alarm permission grant (which upgrades any inexact fallbacks to exact).
      * The DB is the source of truth; AlarmManager is just a cache.
-     *
-     * Alarms whose trigger time has already passed are skipped (they will appear as MISSED
-     * in the dose history since [AlarmReceiver] wrote MISSED at schedule time).
      */
     suspend fun rescheduleAll() {
         withContext(Dispatchers.IO) {
@@ -229,12 +242,6 @@ class AlarmScheduler(
             }
         }
 
-        if (activeAlarms.isEmpty()) {
-            Log.d(TAG, "rescheduleAll: no future active alarms to restore")
-            settingsRepository.setAlarmsActive(overdue.isNotEmpty())
-            return@withContext
-        }
-
         activeAlarms.forEach { alarm ->
             val medication = medicationDao.getById(alarm.medicationId)
             if (medication == null) {
@@ -260,12 +267,19 @@ class AlarmScheduler(
             Log.d(TAG, "Rescheduled alarm tapId=${alarm.tapId} index=${alarm.followUpIndex} at ${alarm.triggerAtMillis}")
         }
 
-        settingsRepository.setAlarmsActive(true)
+        settingsRepository.setAlarmsActive(activeAlarms.isNotEmpty() || overdue.isNotEmpty())
         Log.i(TAG, "rescheduleAll: restored ${activeAlarms.size} alarms")
 
-        // Re-schedule daily reminders for medications that have them configured
-        val allMedications = medicationDao.getAll()
-        allMedications.filter { it.dailyReminderMinutes != null }.forEach { scheduleDailyReminder(it) }
+        // Daily reminders and wear-off warnings have no DB rows, so re-derive them every time —
+        // even when no follow-ups are pending (previously an early return skipped them, so a
+        // reboot silently dropped the daily reminder).
+        medicationDao.getAll().forEach { medication ->
+            scheduleDailyReminder(medication)
+            val lastDose = doseEventDao.getLastConfirmedDose(medication.id)
+            if (lastDose != null) {
+                scheduleWearOffWarning(lastDose.sourceTapId, medication, lastDose.actionedAt)
+            }
+        }
 
         } // end withContext
     }
@@ -279,6 +293,9 @@ class AlarmScheduler(
     fun scheduleTestAlarm(medicationId: Long) {
         val triggerAt = System.currentTimeMillis() + Constants.TEST_REMINDER_DELAY_MILLIS
         val intent = Intent(context, AlarmReceiver::class.java).apply {
+            // Own action so this PendingIntent can never match (and overwrite) a real follow-up
+            // whose request code happens to equal TEST_ALARM_REQUEST_CODE (tap 4095's snooze slot).
+            action = Constants.ACTION_TEST_ALARM
             putExtra(Constants.EXTRA_TAP_ID, -1L) // Special sentinel for test alarms
             putExtra(Constants.EXTRA_MEDICATION_ID, medicationId)
             putExtra(Constants.EXTRA_FOLLOWUP_INDEX, 0)
@@ -551,10 +568,11 @@ class AlarmScheduler(
 
     /**
      * Sets an exact alarm, guarding the Android 12+ [AlarmManager.canScheduleExactAlarms] permission
-     * (E-H3). The app declares `USE_EXACT_ALARM` (auto-granted to alarm apps), but if that grant is
-     * ever unavailable — e.g. forced onto `SCHEDULE_EXACT_ALARM`, which the user can revoke — this
-     * degrades to an inexact alarm instead of crashing or silently no-op'ing. A missed exact window
-     * is far better than a lost reminder.
+     * (E-H3). The app relies on `SCHEDULE_EXACT_ALARM`, which is not granted by default on Android
+     * 14+ and can be revoked. Without it this degrades to an inexact alarm rather than crashing —
+     * but an inexact alarm can be deferred for a long time while an idle phone is in Doze (e.g. in
+     * a locker during a night shift). Hence the Home banner asking for the grant, and
+     * [BootReceiver] re-arming everything as exact the moment it is given.
      */
     private fun setExact(type: Int, triggerAtMillis: Long, pendingIntent: PendingIntent) {
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||

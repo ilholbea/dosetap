@@ -258,4 +258,10 @@
     <string name="warning_off_day_title">Today is an off-day</string>
     <string name="warning_log_anyway">Log anyway</string>
 
+    <!-- Widget picker preview (sample content) -->
+    <string name="widget_preview_emoji" translatable="false">💊</string>
+    <string name="widget_preview_med" translatable="false">Ritalin</string>
+    <string name="widget_preview_last_dose">Last dose: 3h 20m ago</string>
+    <string name="widget_preview_next">Next: 2:00 PM</string>
+
 </resources>

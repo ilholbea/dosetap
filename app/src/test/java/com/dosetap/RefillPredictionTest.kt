@@ -1,75 +1,56 @@
 package com.dosetap
 
+import com.dosetap.domain.RefillPrediction
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 /**
- * Verifies the days-until-refill arithmetic used by HomeViewModel to decide whether to
- * show the prescription-aware refill banner. Lifted into a standalone helper so it can
- * be tested without spinning up the whole VM.
+ * Verifies the refill-by prediction behind HomeViewModel's prescription-aware refill banner.
+ * Tests the production [RefillPrediction] directly (this used to test a private copy of the logic).
  */
 class RefillPredictionTest {
 
     private val dayMillis = 24L * 60 * 60 * 1000
+    private val now = 1_700_000_000_000L
 
-    private fun computeRefillByMillis(
-        rxDate: Long?,
-        daysSupply: Int?,
-        bufferDays: Int,
-        nowMillis: Long,
-    ): Long? {
-        rxDate ?: return null
-        daysSupply ?: return null
-        val refillByMillis = rxDate + (daysSupply - bufferDays).coerceAtLeast(0) * dayMillis
-        val daysUntilRefill = (refillByMillis - nowMillis) / dayMillis
-        return if (daysUntilRefill in -1..(bufferDays * 2L)) refillByMillis else null
-    }
+    private fun compute(rxDate: Long?, daysSupply: Int?, bufferDays: Int = 7, at: Long = now) =
+        RefillPrediction.refillByMillis(rxDate, daysSupply, bufferDays, at)
 
     @Test
     fun `returns null when no Rx data provided`() {
-        val now = 1_700_000_000_000L
-        assertThat(computeRefillByMillis(null, 30, 7, now)).isNull()
-        assertThat(computeRefillByMillis(now, null, 7, now)).isNull()
+        assertThat(compute(null, 30)).isNull()
+        assertThat(compute(now, null)).isNull()
     }
 
     @Test
     fun `returns null when refill date is far in the future`() {
-        val now = 1_700_000_000_000L
-        // 30 days supply, 7-day buffer = banner at day 23. Filled today.
-        val rxDate = now
-        // We're 1 day past fill, so refill-by date is in 22 days, well beyond bufferDays * 2 (14).
-        val result = computeRefillByMillis(rxDate, 30, 7, now + dayMillis)
-        assertThat(result).isNull()
+        // 30 days supply, 7-day buffer: refill-by is day 23. One day after fill it's 22 days
+        // away — beyond the 14-day (bufferDays * 2) lead.
+        assertThat(compute(rxDate = now, daysSupply = 30, at = now + dayMillis)).isNull()
     }
 
     @Test
-    fun `returns refill-by millis when inside the warning window`() {
-        val now = 1_700_000_000_000L
-        // Filled 25 days ago, 30-day supply, 7-day buffer → refill-by was 2 days ago.
-        // Within the [-1, 14] window.
+    fun `returns refill-by millis between refill-by and run-out`() {
+        // Filled 25 days ago: refill-by passed 2 days ago, but the pills last 5 more days — the
+        // most urgent window, so the banner must still show.
         val rxDate = now - 25 * dayMillis
-        val result = computeRefillByMillis(rxDate, 30, 7, now)
-        assertThat(result).isNotNull()
-        val expectedRefillBy = rxDate + 23 * dayMillis
-        assertThat(result).isEqualTo(expectedRefillBy)
+        assertThat(compute(rxDate, 30)).isEqualTo(rxDate + 23 * dayMillis)
     }
 
     @Test
     fun `returns refill-by when exactly at the buffer threshold`() {
-        val now = 1_700_000_000_000L
-        // 30-day supply, 7-day buffer, filled 23 days ago → refill-by is today.
-        val rxDate = now - 23 * dayMillis
-        val result = computeRefillByMillis(rxDate, 30, 7, now)
-        assertThat(result).isNotNull()
+        // Filled 23 days ago → refill-by is today.
+        assertThat(compute(now - 23 * dayMillis, 30)).isNotNull()
+    }
+
+    @Test
+    fun `still shows one day after run-out`() {
+        assertThat(compute(now - 31 * dayMillis, 30)).isNotNull()
     }
 
     @Test
     fun `returns null once user is more than one day past run-out`() {
-        val now = 1_700_000_000_000L
-        // Filled 35 days ago, 30-day supply, 7-day buffer → refill-by was 12 days ago.
-        // Outside the [-1, 14] window on the lower end.
-        val rxDate = now - 35 * dayMillis
-        val result = computeRefillByMillis(rxDate, 30, 7, now)
-        assertThat(result).isNull()
+        // Filled 35 days ago, 30-day supply → ran out 5 days ago.
+        assertThat(compute(now - 35 * dayMillis, 30)).isNull()
     }
 }

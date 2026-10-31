@@ -91,39 +91,63 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```
 app/src/main/java/com/dosetap/
-├── DoseTapApp.kt              # Application — creates AppContainer, notification channel
-├── AppContainer.kt            # Manual DI
+├── DoseTapApp.kt              # Application — creates AppContainer, notification channels
+├── AppContainer.kt            # Manual DI, isPro / isProNow(), ambient + widget refresh
 ├── MainActivity.kt            # Single activity, hosts Compose nav
 ├── AlarmActivity.kt           # Full-screen alarm shown over lock screen
 ├── alarm/
-│   ├── AlarmScheduler.kt      # Schedules/cancels/reschedules alarms
-│   ├── AlarmReceiver.kt       # Fires on alarm trigger, posts notification
-│   ├── BootReceiver.kt        # Reschedules after reboot/update/TZ change
-│   └── DoseActionReceiver.kt  # Handles Taken/Snooze/Skip from notification
+│   ├── AlarmScheduler.kt      # Schedules/cancels/reschedules every alarm type
+│   ├── AlarmReceiver.kt       # Follow-up + daily reminder fire → notification
+│   ├── DoseReminderNotification.kt # Shared reminder notification (original + re-nudges)
+│   ├── DoseActionReceiver.kt  # Taken/Snooze/Skip/Stop from notification buttons
+│   ├── BootReceiver.kt        # Re-arms after reboot/update/TZ/time change/exact-alarm grant
+│   ├── EscalationReceiver.kt  # Pro re-nudges at +10/+25 min
+│   ├── WearOffWarningReceiver.kt
+│   ├── WeeklySummaryReceiver.kt
+│   ├── AmbientLogDoseReceiver.kt # "Log dose" on the lock-screen status notification
+│   └── FocusAlarmReceiver.kt
+├── billing/                   # Play Billing, gift codes, sponsor-a-friend codes
 ├── data/
 │   ├── db/                    # Room: AppDatabase, 3 DAOs, Converters
 │   └── prefs/                 # DataStore: SettingsRepository
 ├── domain/
-│   ├── model/                 # Medication, DoseEvent, ScheduledAlarm, FeatureFlag
+│   ├── DoseTiming.kt          # Shift-aware "current dose" + double-dose window rules
+│   ├── model/                 # Medication, DoseEvent, ScheduledAlarm, FeatureFlag, presets
 │   └── usecase/               # LogDose, HandleDoseAction, ScheduleFollowUps
+├── notification/              # Persistent lock-screen dose status ("Morning Anchor")
 ├── ui/
-│   ├── theme/                 # M3 color scheme, typography
+│   ├── theme/                 # "Calm Focus" color scheme, typography, shapes
 │   ├── navigation/            # NavHost + Screen destinations
-│   ├── onboarding/            # 4-screen onboarding flow
+│   ├── onboarding/            # Onboarding flow (incl. permissions)
 │   ├── home/                  # Home screen + ViewModel
 │   ├── history/               # 30-day dose history + ViewModel
+│   ├── stats/                 # Stats + heatmap (Pro)
+│   ├── report/                # Doctor report (Pro)
+│   ├── focus/                 # Focus timer (Pro)
+│   ├── paywall/               # Paywall bottom sheet + code redeem
 │   └── settings/              # Settings + ViewModel
 ├── widget/
 │   ├── DoseWidget.kt          # Glance widget
 │   ├── DoseWidgetReceiver.kt  # AppWidgetProvider
-│   ├── TapAction.kt           # Widget click handler + debounce
+│   ├── TapAction.kt           # Widget click handler + debounce + double-dose guard
 │   └── WidgetConfigActivity.kt
 └── util/
+    ├── BackupManager.kt       # JSON export/import
     ├── BatteryOptimizationHelper.kt
+    ├── ExactAlarmHelper.kt
     ├── Constants.kt
     ├── OemDetector.kt
     └── TimeFormatter.kt
 ```
+
+### Reminder semantics
+
+- **Taken / Skip** answer *that* reminder only — later follow-ups in the chain still fire.
+  **Stop today** ends the current dose's chain (scoped to the dose, not the calendar day).
+- A dose is **current** while its cycle runs (longest of effect duration, last follow-up, or 12h),
+  so night shifts don't flip to "not taken" at midnight. See `domain/DoseTiming.kt`.
+- The widget and lock-screen "Log dose" refuse to log inside the last dose's effect window
+  (3h if no duration is set); a deliberate second dose goes through the app's confirm dialog.
 
 ---
 
@@ -156,4 +180,4 @@ createdAt           actionedAt (idx)       triggerAtMillis (idx)
 ## See Also
 
 - [TESTING.md](TESTING.md) — Manual device test matrix
-- [TODO.md](TODO.md) — Tracked known behaviors and future work
+- [PLAN.md](PLAN.md) — Product plan and hard ethics rules

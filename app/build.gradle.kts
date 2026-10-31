@@ -69,12 +69,25 @@ android {
         }
     }
 
+    // Exported Room schemas, readable by MigrationTestHelper in the Robolectric unit tests.
+    // Robolectric reads the tested variant's merged assets (not the test source set's), so they go
+    // in debug — never shipped in release.
+    sourceSets {
+        getByName("debug").assets.srcDir("$projectDir/schemas")
+    }
+
     lint {
         lintConfig = file("$rootDir/lint.xml")
         abortOnError = true
         warningsAsErrors = false
         checkReleaseBuilds = true
     }
+}
+
+// AppDatabase sets exportSchema = true; give Room somewhere to write it so migrations can be
+// verified against the committed JSON (app/schemas/) instead of exporting nowhere.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 detekt {

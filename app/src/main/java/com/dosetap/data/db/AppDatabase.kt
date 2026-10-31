@@ -20,10 +20,11 @@ import com.dosetap.domain.model.ScheduledAlarm
  * - v3: Added pillCount, refillAlertAt, offDays, durationMinutes to Medication
  * - v4: Added prescriptionDate, daysSupply, refillBufferDays, morningAnchor to Medication;
  *        note, tags to DoseEvent
+ * - v5: Added pillDecremented to DoseEvent (lets undo restore the pill count exactly)
  */
 @Database(
     entities = [Medication::class, DoseEvent::class, ScheduledAlarm::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -63,6 +64,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE dose_events ADD COLUMN pillDecremented INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** Every migration, in order — shared by the app's builder and MigrationTest. */
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -78,7 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DATABASE_NAME,
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(*ALL_MIGRATIONS)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
                 .build()
         }

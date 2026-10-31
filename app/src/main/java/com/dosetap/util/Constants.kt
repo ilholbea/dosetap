@@ -35,6 +35,9 @@ object Constants {
     /** PendingIntent request code for test reminder. */
     const val TEST_ALARM_REQUEST_CODE = 0xFFFF
 
+    /** Intent action for the test reminder — keeps it out of the follow-up PendingIntent space. */
+    const val ACTION_TEST_ALARM = "com.dosetap.action.TEST_ALARM"
+
     // ===== Widget debounce =====
     /** Ignore widget taps within this window of each other (milliseconds). */
     const val WIDGET_DEBOUNCE_MILLIS = 1500L
@@ -112,7 +115,7 @@ object Constants {
     const val REFILL_WARNING_NOTIFICATION_ID_BASE = 98_000
 
     // ===== Sponsor codes =====
-    const val SPONSOR_CODE_LENGTH = 11  // "XXX-XXX-XXX" format
+    const val SPONSOR_CODE_LENGTH = 17  // "DTP-XXXXXX-XXXXXX" format
 
     // ===== Trial =====
     /** Duration of a sponsor/gift-code Pro trial in milliseconds (14 days). */

@@ -23,6 +23,8 @@ object DoseReminderNotification {
      * @param tapId Source tap ID (used to cancel the follow-up chain on action).
      * @param notificationId Stable ID from [AlarmReceiver.buildNotificationId]; re-posting with
      *   the same ID replaces the tray entry and re-alerts (fresh sound/vibration).
+     * @param followUpIndex Which follow-up this is — [com.dosetap.AlarmActivity] needs it to
+     *   rebuild [notificationId] and dismiss the right tray entry.
      * @param bodyText Content text — medication name for the original, reworded for nudges.
      */
     fun build(
@@ -31,6 +33,7 @@ object DoseReminderNotification {
         doseEventId: Long,
         tapId: Long,
         notificationId: Int,
+        followUpIndex: Int,
         bodyText: String,
     ): Notification {
         val medicationId = medication.id
@@ -64,6 +67,7 @@ object DoseReminderNotification {
             putExtra(Constants.EXTRA_DOSE_EVENT_ID, doseEventId)
             putExtra(Constants.EXTRA_MEDICATION_ID, medicationId)
             putExtra(Constants.EXTRA_TAP_ID, tapId)
+            putExtra(Constants.EXTRA_FOLLOWUP_INDEX, followUpIndex)
         }
         val fullScreenPi = PendingIntent.getActivity(
             context, notificationId, alarmActivityIntent,

@@ -413,7 +413,7 @@ fun HomeScreen(
                 item {
                     ActionBanner(
                         emoji = "⏰",
-                        message = "Allow exact alarms so reminders fire on time",
+                        message = "Allow exact alarms — without it, reminders can arrive very late or not at all while your phone sits idle",
                         actionLabel = "Allow",
                         onAction = { ExactAlarmHelper.openExactAlarmSettings(context) },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),

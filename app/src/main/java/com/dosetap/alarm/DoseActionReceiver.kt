@@ -8,13 +8,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
 import com.dosetap.DoseTapApp
 import com.dosetap.domain.model.DoseAction
 import com.dosetap.util.Constants
-import com.dosetap.widget.DoseWidget
-import com.dosetap.widget.LastDoseTimeKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,10 +19,10 @@ import kotlinx.coroutines.launch
 private const val TAG = "DoseActionReceiver"
 
 /**
- * Handles user actions from notification buttons (Taken / Snooze / Skip).
+ * Handles user actions from notification buttons (Taken / Snooze / Skip / Stop today).
  *
- * Updates the [com.dosetap.domain.model.DoseEvent] that was written as MISSED by [AlarmReceiver],
- * dismisses the notification, and for snooze: reschedules a follow-up alarm.
+ * Taken / Snooze / Skip go through [com.dosetap.domain.usecase.HandleDoseActionUseCase] — the same
+ * path as the full-screen [com.dosetap.AlarmActivity] — so both surfaces behave identically.
  */
 class DoseActionReceiver : BroadcastReceiver() {
 
@@ -44,7 +40,7 @@ class DoseActionReceiver : BroadcastReceiver() {
             Constants.ACTION_DOSE_TAKEN -> "✓ Dose recorded"
             Constants.ACTION_DOSE_SNOOZED -> "⏰ Snoozed 15 min"
             Constants.ACTION_DOSE_SKIPPED -> "Dose skipped"
-            Constants.ACTION_DOSE_STOP_TODAY -> "No more reminders today"
+            Constants.ACTION_DOSE_STOP_TODAY -> context.getString(com.dosetap.R.string.toast_stop_today)
             else -> null
         }
         if (toastMsg != null) {
@@ -74,7 +70,6 @@ class DoseActionReceiver : BroadcastReceiver() {
         medicationId: Long,
     ) {
         val container = (context.applicationContext as DoseTapApp).container
-        val nowMillis = System.currentTimeMillis()
 
         // Resolve medicationId — TAKEN/SKIPPED intents don't carry it, so fall back to the event.
         val resolvedMedicationId = when {
@@ -83,74 +78,36 @@ class DoseActionReceiver : BroadcastReceiver() {
             else -> -1L
         }
 
-        when (action) {
-            Constants.ACTION_DOSE_TAKEN -> {
+        val doseAction = when (action) {
+            Constants.ACTION_DOSE_TAKEN -> DoseAction.TAKEN
+            Constants.ACTION_DOSE_SNOOZED -> DoseAction.SNOOZED
+            Constants.ACTION_DOSE_SKIPPED -> DoseAction.SKIPPED
+            else -> null
+        }
+
+        when {
+            doseAction != null -> {
                 if (doseEventId != -1L) {
-                    val event = container.doseEventDao.getById(doseEventId)
-                    if (event != null) {
-                        container.doseEventDao.update(
-                            event.copy(action = DoseAction.TAKEN, actionedAt = nowMillis)
-                        )
-                    }
+                    container.handleDoseActionUseCase.execute(doseEventId, doseAction)
                 }
-                // Cancel all remaining follow-up alarms for this tap
-                if (tapId != -1L) container.alarmScheduler.cancelFollowUps(tapId)
-                Log.d(TAG, "Dose marked TAKEN for event $doseEventId, follow-ups cancelled for tapId=$tapId")
+                Log.d(TAG, "Dose event $doseEventId marked $doseAction")
             }
 
-            Constants.ACTION_DOSE_SNOOZED -> {
-                if (doseEventId != -1L) {
-                    val event = container.doseEventDao.getById(doseEventId)
-                    if (event != null) {
-                        container.doseEventDao.update(
-                            event.copy(action = DoseAction.SNOOZED, actionedAt = nowMillis)
-                        )
-                    }
-                }
-
-                // Re-ping in SNOOZE_DURATION_MILLIS, keeping the remaining follow-up chain (E-H1).
-                if (medicationId != -1L && tapId != -1L) {
-                    val medication = container.medicationDao.getById(medicationId)
-                    if (medication != null) {
-                        val snoozeTriggerAt = nowMillis + Constants.SNOOZE_DURATION_MILLIS
-                        container.alarmScheduler.scheduleSnooze(
-                            tapId = tapId,
-                            medication = medication,
-                            triggerAtMillis = snoozeTriggerAt,
-                        )
-                    }
-                }
-                Log.d(TAG, "Dose SNOOZED, snooze alarm scheduled")
-            }
-
-            Constants.ACTION_DOSE_SKIPPED -> {
-                if (doseEventId != -1L) {
-                    val event = container.doseEventDao.getById(doseEventId)
-                    if (event != null) {
-                        container.doseEventDao.update(
-                            event.copy(action = DoseAction.SKIPPED, actionedAt = nowMillis)
-                        )
-                    }
-                }
-                // Cancel all remaining follow-up alarms for this tap
-                if (tapId != -1L) container.alarmScheduler.cancelFollowUps(tapId)
-                Log.d(TAG, "Dose SKIPPED for event $doseEventId, follow-ups cancelled for tapId=$tapId")
-            }
-
-            Constants.ACTION_DOSE_STOP_TODAY -> {
-                // Cancel all of today's remaining alarms for this medication — no dose event recorded
-                if (medicationId != -1L) {
+            action == Constants.ACTION_DOSE_STOP_TODAY -> {
+                // End *this dose's* reminder chain. Scoped to the tap rather than the calendar day:
+                // for a night shift "today" flips at midnight mid-cycle, so a day-based cancel either
+                // missed the post-midnight reminders or wiped the next shift's.
+                if (tapId != -1L) {
+                    container.alarmScheduler.cancelFollowUps(tapId)
+                } else if (medicationId != -1L) {
                     container.alarmScheduler.cancelTodayRemainingForMedication(medicationId)
                 }
-                Log.d(TAG, "Stop-today: cancelled remaining alarms for medicationId=$medicationId")
+                container.alarmScheduler.cancelEscalation(resolvedMedicationId)
+                Log.d(TAG, "Stop: cancelled remaining reminders for tapId=$tapId medicationId=$medicationId")
             }
 
             else -> Log.w(TAG, "Unknown action: $action")
         }
-
-        // Any response to the reminder cancels its escalation re-nudge chain (Spec #2).
-        // A SNOOZE re-arms a fresh chain when the snoozed follow-up fires.
-        container.alarmScheduler.cancelEscalation(resolvedMedicationId)
 
         // Dismiss the notification regardless of action
         if (notificationId != -1) {
@@ -158,36 +115,14 @@ class DoseActionReceiver : BroadcastReceiver() {
             nm.cancel(notificationId)
         }
 
-        // Update ambient notification after action
         try {
             container.refreshAmbient()
         } catch (e: Exception) {
             Log.e(TAG, "Ambient notification update failed", e)
         }
-
-        // Inline widget refresh — awaited before pendingResult.finish()
-        // Glance reuses a running session on update() and only re-reads DataStore, so we must
-        // write the current dose time to DataStore first for the composable to pick it up.
-        try {
-            val appCtx = context.applicationContext
-            val glanceManager = GlanceAppWidgetManager(appCtx)
-            val glanceIds = glanceManager.getGlanceIds(DoseWidget::class.java)
-            Log.d(TAG, "Widget refresh: found ${glanceIds.size} Glance widget(s)")
-            if (glanceIds.isNotEmpty()) {
-                val doseTimeForWidget = if (action == Constants.ACTION_DOSE_TAKEN) nowMillis else {
-                    val med = container.medicationDao.getFirst()
-                    med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }?.actionedAt ?: 0L
-                }
-                glanceIds.forEach { glanceId ->
-                    updateAppWidgetState(appCtx, glanceId) { prefs ->
-                        prefs[LastDoseTimeKey] = doseTimeForWidget
-                    }
-                    DoseWidget().update(appCtx, glanceId)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Widget refresh failed", e)
-        }
+        // Awaited before pendingResult.finish(). Writes each widget's own medication's last dose
+        // (the old inline version stamped the first medication's time onto every widget).
+        container.updateWidgetsNow()
     }
 
     companion object {

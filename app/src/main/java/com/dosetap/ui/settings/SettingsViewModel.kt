@@ -91,7 +91,11 @@ class SettingsViewModel(
                     val old = container.medicationDao.getById(medication.id)
                     container.medicationDao.update(medication)
 
-                    val lastTap = container.doseEventDao.getLastInitialTap(medication.id)
+                    // Only re-arm the current chain when the intervals actually changed — a rename
+                    // shouldn't resurrect reminders the user already stopped or answered.
+                    val lastTap = if (old?.followUps != medication.followUps) {
+                        container.doseEventDao.getLastInitialTap(medication.id)
+                    } else null
                     if (lastTap != null) {
                         container.scheduleFollowUpsUseCase.execute(
                             tapId = lastTap.sourceTapId,

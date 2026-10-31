@@ -54,7 +54,7 @@ class EscalationReceiver : BroadcastReceiver() {
                 }
 
                 // Guard: Pro entitlement may have lapsed since scheduling.
-                if (!FeatureFlag.canUseSmartEscalation(container.isPro.first())) {
+                if (!FeatureFlag.canUseSmartEscalation(container.isProNow())) {
                     Log.d(TAG, "Not Pro — suppressing escalation")
                     return@launch
                 }
@@ -89,6 +89,7 @@ class EscalationReceiver : BroadcastReceiver() {
                     doseEventId = doseEventId,
                     tapId = tapId,
                     notificationId = notificationId,
+                    followUpIndex = followUpIndex,
                     bodyText = context.getString(bodyRes, medication.name),
                 )
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

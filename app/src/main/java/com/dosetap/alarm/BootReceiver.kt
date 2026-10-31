@@ -1,5 +1,6 @@
 package com.dosetap.alarm
 
+import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -21,6 +22,7 @@ private const val TAG = "BootReceiver"
  * - `MY_PACKAGE_REPLACED` — app was updated, alarms may be cleared
  * - `TIMEZONE_CHANGED` — user travelled/changed timezone
  * - `TIME_SET` — user manually changed the system clock
+ * - `SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED` — exact alarms just became allowed (API 31+)
  *
  * For TIMEZONE_CHANGED and TIME_SET: alarms are already stored as absolute UTC millis,
  * so they will still fire at the correct absolute time. However, the displayed local time
@@ -67,6 +69,15 @@ class BootReceiver : BroadcastReceiver() {
                 // Record TZ change timestamp so home screen can show informational banner.
                 // resetAlarmBanner() is NOT called here — we want the banner to appear on next open.
                 container.settingsRepository.recordTimezoneChange(System.currentTimeMillis())
+            }
+
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> {
+                // Exact-alarm access was just granted. Everything scheduled while it was missing
+                // went in as an *inexact* fallback, which Doze can hold back for a long time on an
+                // idle phone. Re-arm it all as exact now instead of waiting for the next dose.
+                Log.i(TAG, "Exact-alarm permission granted — re-arming alarms as exact")
+                container.alarmScheduler.rescheduleAll()
+                container.alarmScheduler.scheduleWeeklySummary()
             }
 
             Intent.ACTION_TIME_CHANGED -> {

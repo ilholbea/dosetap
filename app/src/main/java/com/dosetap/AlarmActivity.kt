@@ -2,7 +2,9 @@ package com.dosetap
 
 import android.app.NotificationManager
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,11 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import android.widget.Toast
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.lifecycle.lifecycleScope
-import com.dosetap.widget.DoseWidget
-import com.dosetap.widget.LastDoseTimeKey
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,8 +69,18 @@ class AlarmActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setShowWhenLocked(true)
-        setTurnScreenOn(true)
+        // setShowWhenLocked/setTurnScreenOn are API 27+; minSdk is 26, where calling them crashes
+        // the alarm screen (NoSuchMethodError). Android 8.0 needs the legacy window flags.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
 
         val doseEventId = intent.getLongExtra(Constants.EXTRA_DOSE_EVENT_ID, -1L)
         val medicationId = intent.getLongExtra(Constants.EXTRA_MEDICATION_ID, -1L)
@@ -102,25 +110,10 @@ class AlarmActivity : ComponentActivity() {
                         container.handleDoseActionUseCase.execute(doseEventId, action)
                     }
                     (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(notificationId)
-                    // Inline awaited widget update — must complete before finish() is called.
-                    // Write dose time to DataStore first: Glance reuses a running session on
-                    // update() and only re-reads DataStore, not the DB.
-                    val nowMillis = System.currentTimeMillis()
-                    val glanceManager = GlanceAppWidgetManager(applicationContext)
-                    val glanceIds = glanceManager.getGlanceIds(DoseWidget::class.java)
-                    Log.d(TAG, "AlarmActivity widget refresh: ${glanceIds.size} widget(s)")
-                    if (glanceIds.isNotEmpty()) {
-                        val doseTimeForWidget = if (action == DoseAction.TAKEN) nowMillis else {
-                            val med = container.medicationDao.getFirst()
-                            med?.let { container.doseEventDao.getLastConfirmedDose(it.id) }?.actionedAt ?: 0L
-                        }
-                        glanceIds.forEach { glanceId ->
-                            updateAppWidgetState(applicationContext, glanceId) { prefs ->
-                                prefs[LastDoseTimeKey] = doseTimeForWidget
-                            }
-                            DoseWidget().update(applicationContext, glanceId)
-                        }
-                    }
+                    // Awaited — must complete before finish(). Same refresh as the notification
+                    // buttons, so the lock-screen status and each widget's own medication update.
+                    container.refreshAmbient()
+                    container.updateWidgetsNow()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error handling alarm action: $action", e)
                 } finally {

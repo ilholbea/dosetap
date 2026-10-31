@@ -16,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.dosetap.data.db.AlarmDao
@@ -64,6 +65,7 @@ class AppContainer(context: Context) {
             alarmDao = alarmDao,
             medicationDao = medicationDao,
             settingsRepository = settingsRepository,
+            doseEventDao = doseEventDao,
         )
     }
 
@@ -93,7 +95,7 @@ class AppContainer(context: Context) {
 
     // ===== Billing =====
     val billingManager: BillingManager by lazy { BillingManager(appContext, settingsRepository) }
-    val giftCodeManager: GiftCodeManager by lazy { GiftCodeManager(appContext) }
+    val giftCodeManager: GiftCodeManager by lazy { GiftCodeManager(appContext, sponsorCodeManager) }
     val sponsorCodeManager: com.dosetap.billing.SponsorCodeManager by lazy {
         com.dosetap.billing.SponsorCodeManager(appContext)
     }
@@ -116,6 +118,26 @@ class AppContainer(context: Context) {
                 System.currentTimeMillis() - trialStart < Constants.TRIAL_DURATION_MILLIS
             billing || legacy || trialActive || devGrant || permanentGift
         }.stateIn(containerScope, SharingStarted.Eagerly, false)
+    }
+
+    /**
+     * Pro entitlement read straight from DataStore — use this in BroadcastReceivers.
+     *
+     * [isPro] starts as `false` until its sources emit, and alarm receivers usually run in a
+     * freshly started process, so `isPro.first()` there returns that placeholder and silently
+     * disables Pro features (smart escalation never armed). This suspends until the persisted
+     * values are actually loaded. Play purchases count via the cached entitlement that
+     * [BillingManager] persists after every successful query.
+     */
+    suspend fun isProNow(): Boolean {
+        val trialStart = settingsRepository.trialStartedAtMillis.first()
+        val trialActive = trialStart > 0L &&
+            System.currentTimeMillis() - trialStart < Constants.TRIAL_DURATION_MILLIS
+        return trialActive ||
+            settingsRepository.proEntitlementCached.first() ||
+            settingsRepository.giftCodeUnlocked.first() ||
+            settingsRepository.devGrantUnlocked.first() ||
+            settingsRepository.permanentGiftUnlocked.first()
     }
 
     val ambientNotificationManager: AmbientNotificationManager by lazy {
@@ -147,37 +169,43 @@ class AppContainer(context: Context) {
 
     /** Pushes a fresh render to every DoseTap widget, writing each widget's own medication's last-dose time. */
     fun refreshWidgets() {
-        (appContext as DoseTapApp).appScope.launch {
-            try {
-                val glanceManager = GlanceAppWidgetManager(appContext)
-                val glanceIds = glanceManager.getGlanceIds(DoseWidget::class.java)
-                if (glanceIds.isEmpty()) return@launch
+        (appContext as DoseTapApp).appScope.launch { updateWidgetsNow() }
+    }
 
-                // Resolve rawId→GlanceId pairing (getGlanceIds internally calls getAppWidgetIds,
-                // so both lists are in the same order).
-                val rawIds = AppWidgetManager.getInstance(appContext)
-                    .getAppWidgetIds(ComponentName(appContext, DoseWidgetReceiver::class.java))
-                    .toList()
-                val rawToGlance = rawIds.zip(glanceIds).toMap()
+    /**
+     * Awaitable form of [refreshWidgets] — for BroadcastReceivers and finishing Activities, which
+     * must complete the update before `pendingResult.finish()` / `finish()` lets the process die.
+     */
+    suspend fun updateWidgetsNow() {
+        try {
+            val glanceManager = GlanceAppWidgetManager(appContext)
+            val glanceIds = glanceManager.getGlanceIds(DoseWidget::class.java)
+            if (glanceIds.isEmpty()) return
 
-                rawToGlance.forEach { (rawId, glanceId) ->
-                    val configuredMedId = settingsRepository.getWidgetMedication(rawId)
-                    val medication = if (configuredMedId != -1L)
-                        medicationDao.getById(configuredMedId) ?: medicationDao.getFirst()
-                    else medicationDao.getFirst()
+            // Resolve rawId→GlanceId pairing (getGlanceIds internally calls getAppWidgetIds,
+            // so both lists are in the same order).
+            val rawIds = AppWidgetManager.getInstance(appContext)
+                .getAppWidgetIds(ComponentName(appContext, DoseWidgetReceiver::class.java))
+                .toList()
+            val rawToGlance = rawIds.zip(glanceIds).toMap()
 
-                    val lastDose = medication?.let { doseEventDao.getLastConfirmedDose(it.id) }
-                    val lastDoseTimeMillis = lastDose?.actionedAt ?: 0L
+            rawToGlance.forEach { (rawId, glanceId) ->
+                val configuredMedId = settingsRepository.getWidgetMedication(rawId)
+                val medication = if (configuredMedId != -1L)
+                    medicationDao.getById(configuredMedId) ?: medicationDao.getFirst()
+                else medicationDao.getFirst()
 
-                    updateAppWidgetState(appContext, glanceId) { prefs ->
-                        prefs[LastDoseTimeKey] = lastDoseTimeMillis
-                    }
-                    DoseWidget().update(appContext, glanceId)
+                val lastDose = medication?.let { doseEventDao.getLastConfirmedDose(it.id) }
+                val lastDoseTimeMillis = lastDose?.actionedAt ?: 0L
+
+                updateAppWidgetState(appContext, glanceId) { prefs ->
+                    prefs[LastDoseTimeKey] = lastDoseTimeMillis
                 }
-                Log.d("AppContainer", "refreshWidgets: updated ${glanceIds.size} widget(s)")
-            } catch (e: Exception) {
-                Log.e("AppContainer", "refreshWidgets failed", e)
+                DoseWidget().update(appContext, glanceId)
             }
+            Log.d("AppContainer", "refreshWidgets: updated ${glanceIds.size} widget(s)")
+        } catch (e: Exception) {
+            Log.e("AppContainer", "refreshWidgets failed", e)
         }
     }
 }

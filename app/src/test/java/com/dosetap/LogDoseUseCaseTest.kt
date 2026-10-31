@@ -38,6 +38,7 @@ class LogDoseUseCaseTest {
             alarmDao = db.alarmDao(),
             medicationDao = db.medicationDao(),
             settingsRepository = settingsRepository,
+            doseEventDao = db.doseEventDao(),
         )
 
         useCase = LogDoseUseCase(
@@ -116,12 +117,77 @@ class LogDoseUseCaseTest {
         val medId = db.medicationDao().insert(
             Medication(name = "Test Med", followUps = listOf(240, 480))
         )
-        val tapTime = 1_700_000_000_000L
+        val tapTime = System.currentTimeMillis()
 
         val tapId = useCase.execute(medicationId = medId, tapTimeMillis = tapTime)
 
         val alarms = db.alarmDao().getActiveByTapId(tapId).sortedBy { it.followUpIndex }
         assertThat(alarms[0].triggerAtMillis).isEqualTo(tapTime + 240 * 60_000L)
         assertThat(alarms[1].triggerAtMillis).isEqualTo(tapTime + 480 * 60_000L)
+    }
+
+    @Test
+    fun `backdated dose skips follow-ups that are already in the past`() = runTest {
+        val medId = db.medicationDao().insert(
+            Medication(name = "Test Med", followUps = listOf(240, 480))
+        )
+        // Logged 5h ago: the +4h follow-up is past (would fire instantly), the +8h one is not.
+        val tapTime = System.currentTimeMillis() - 5 * 60 * 60_000L
+
+        val tapId = useCase.execute(medicationId = medId, tapTimeMillis = tapTime)
+
+        val alarms = db.alarmDao().getActiveByTapId(tapId)
+        assertThat(alarms).hasSize(1)
+        assertThat(alarms[0].followUpIndex).isEqualTo(1)
+    }
+
+    @Test
+    fun `undo gives the pill back`() = runTest {
+        val medId = db.medicationDao().insert(
+            Medication(name = "Test Med", followUps = listOf(240), pillCount = 10)
+        )
+        val tapId = useCase.execute(medicationId = medId)
+        assertThat(db.medicationDao().getById(medId)?.pillCount).isEqualTo(9)
+
+        useCase.undo(tapId)
+
+        assertThat(db.medicationDao().getById(medId)?.pillCount).isEqualTo(10)
+    }
+
+    @Test
+    fun `undo of a dose logged at zero pills leaves the count at zero`() = runTest {
+        val medId = db.medicationDao().insert(
+            Medication(name = "Test Med", followUps = listOf(240), pillCount = 0)
+        )
+        val tapId = useCase.execute(medicationId = medId)
+        assertThat(db.doseEventDao().getById(tapId)?.pillDecremented).isFalse()
+
+        useCase.undo(tapId)
+
+        assertThat(db.medicationDao().getById(medId)?.pillCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `undo without pill tracking leaves the count untracked`() = runTest {
+        val medId = db.medicationDao().insert(
+            Medication(name = "Test Med", followUps = listOf(240), pillCount = null)
+        )
+        val tapId = useCase.execute(medicationId = medId)
+
+        useCase.undo(tapId)
+
+        assertThat(db.medicationDao().getById(medId)?.pillCount).isNull()
+    }
+
+    @Test
+    fun `double-dose conflict uses the effect window, not the calendar day`() = runTest {
+        val medId = db.medicationDao().insert(
+            Medication(name = "Test Med", followUps = listOf(240), durationMinutes = 480)
+        )
+        val now = System.currentTimeMillis()
+        useCase.execute(medicationId = medId, tapTimeMillis = now - 3 * 60 * 60_000L)
+
+        assertThat(useCase.findDoubleDoseConflict(medId, now)).isNotNull()
+        assertThat(useCase.findDoubleDoseConflict(medId, now + 6 * 60 * 60_000L)).isNull()
     }
 }

@@ -1,5 +1,6 @@
 package com.dosetap.domain.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -41,6 +42,12 @@ data class DoseEvent(
     val note: String? = null,
     /** Comma-separated preset tag keys selected by user (e.g. "with_food,late"). */
     val tags: String? = null,
+    /**
+     * True when logging this dose took a pill off [Medication.pillCount]. Undo gives the pill back
+     * only when this is set — a dose logged at a count of 0 decremented nothing.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val pillDecremented: Boolean = false,
 )
 
 /** The possible outcomes for a dose event. */
